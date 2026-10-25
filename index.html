@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172b45">
+  <meta name="description" content="An offline local prototype for item-specific U.S. refrigerator-outage guidance, with uncertainty kept visible.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>ColdPause — refrigerator outage guidance</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to food check</a>
+  <header class="header shell">
+    <a class="brand" href="./" aria-label="ColdPause home"><img src="./icon.svg" width="36" height="36" alt=""><span>ColdPause</span></a>
+    <div class="header-actions"><span id="offline-status" role="status">Preparing offline copy…</span><button id="clear-session" class="quiet" type="button">Clear session</button></div>
+  </header>
+  <main id="main" class="shell">
+    <div class="intro">
+      <h1>Check one food.<br>Keep the unknowns visible.</h1>
+      <p>Refrigerator outage guidance drawn from U.S. official sources.<br class="desktop-break"> Local prototype. Not Ontario-specific advice.</p>
+    </div>
+    <div class="scope-note"><strong>A timing guide cannot measure your food.</strong> A closed-door outage window and measured warm exposure are different facts. ColdPause keeps them separate.</div>
+    <p id="session-status" class="session-note" role="status">Choices stay in this browser. No accounts or uploads.</p>
+    <div class="workspace">
+      <form id="food-form" novalidate>
+        <div id="errors" class="error-summary" role="alert" tabindex="-1" hidden></div>
+        <section class="form-section">
+          <div class="section-title"><span class="step" aria-hidden="true">1</span><h2>Choose the food</h2></div>
+          <label for="food">One refrigerator item</label>
+          <select id="food" name="food" aria-describedby="food-note" required>
+            <option value="">Choose from the curated catalog</option>
+            <optgroup label="Perishable foods"><option value="chicken">Chicken, raw or cooked</option><option value="rice">Cooked rice</option><option value="milk">Milk</option><option value="eggs">Shell eggs</option><option value="cutfruit">Cut fresh fruit</option><option value="creamcheese">Cream cheese</option></optgroup>
+            <optgroup label="Different chart categories"><option value="cheddar">Full-fat Cheddar block</option><option value="butter">Butter</option><option value="apple">Whole, uncut apple</option><option value="mustard">Mustard</option></optgroup>
+          </select>
+          <p id="food-note" class="hint">Choose the exact type. Guidance for one food does not apply to the whole refrigerator.</p>
+        </section>
+        <section class="form-section">
+          <div class="section-title"><span class="step" aria-hidden="true">2</span><h2>Record the outage facts</h2></div>
+          <fieldset><legend>Do you know the total time without power?</legend><div class="radio-row"><label><input type="radio" name="durationKnown" value="unknown" checked> No / unsure</label><label><input type="radio" name="durationKnown" value="known"> Yes</label></div></fieldset>
+          <div id="duration-fields" class="dependent" hidden><label for="outageMinutes">Total outage duration, in minutes</label><input type="number" id="outageMinutes" name="outageMinutes" min="0" max="10080" step="1" inputmode="numeric" aria-describedby="duration-hint"><p id="duration-hint" class="hint">From power loss to restoration, or to now if still out. 3 hours = 180 minutes. Update this yourself as time passes.</p></div>
+          <div class="field-grid"><div><label for="doors">Did the doors stay closed?</label><select id="doors" name="doors"><option value="unknown">Not sure</option><option value="closed">Yes, throughout</option><option value="opened">No, opened</option></select></div><div><label for="initialCold">Was it initially at 40°F or below?</label><select id="initialCold" name="initialCold"><option value="unknown">Not sure</option><option value="yes">Yes, known</option><option value="no">No</option></select></div></div>
+          <label for="coldSource">Was ice or another cold source added?</label><select id="coldSource" name="coldSource" aria-describedby="cooling-hint"><option value="unknown">Not sure</option><option value="no">No</option><option value="yes">Yes / moved to a cooler</option></select><p id="cooling-hint" class="hint">Added cooling has separate CDC instructions. This prototype cannot assess that setup.</p>
+        </section>
+        <section class="form-section">
+          <div class="section-title"><span class="step" aria-hidden="true">3</span><h2>Separate evidence from guesses</h2></div>
+          <label for="evidence">Temperature evidence for this food</label><select id="evidence" name="evidence" aria-describedby="evidence-hint"><option value="unknown">No reliable temperature history</option><option value="warm">Timed food exposure at / above 40°F</option><option value="cold">Reliable food record below 40°F throughout</option><option value="restored">Cold reading only after power returned</option></select><p id="evidence-hint" class="hint">Use food measurements, not touch or an assumed refrigerator temperature. A later cold reading cannot reconstruct earlier exposure.</p>
+          <div id="warm-fields" class="dependent" hidden><label for="warmMinutes">Total measured minutes at or above 40°F</label><input type="number" name="warmMinutes" id="warmMinutes" min="0" max="10080" step="1" inputmode="numeric" aria-describedby="warm-hint"><p id="warm-hint" class="hint">A reliable record must cover this food's whole outage exposure. Do not enter outage minutes as a temperature estimate. The chart includes exactly 40°F.</p></div>
+          <label for="spoilage">Any unusual smell, color or texture?</label><select id="spoilage" name="spoilage" aria-describedby="spoilage-hint"><option value="unknown">Not sure / not checked</option><option value="no">None noticed</option><option value="yes">Yes</option></select><p id="spoilage-hint" class="hint">Normal appearance or smell does not establish safety. Never taste food to test it.</p>
+        </section>
+        <div class="form-footer"><button type="submit" class="primary">Review this food <span aria-hidden="true">↗</span></button><p>Every result depends on the facts you enter.</p></div>
+      </form>
+      <aside class="guidance-column" aria-label="Item guidance">
+        <section id="result" class="result empty">
+          <div class="result-symbol" aria-hidden="true">Ⅱ</div>
+          <h2 id="result-title" tabindex="-1">A pause before a decision.</h2>
+          <p>Choose a food and record only what you know. Unknown is a useful answer.</p>
+          <div class="empty-rule"><strong>4 hours without power</strong><span>General refrigerator window, with doors closed.</span></div>
+          <div class="empty-rule"><strong>More than 2 hours at / above 40°F</strong><span>A separate, food-specific exposure chart. Outage time is not exposure time.</span></div>
+          <p class="result-footnote">No overall “safe” rating. No temperature estimates.</p>
+        </section>
+        <section class="source-rail"><h2>Official sources, visible here</h2><p>Rule summaries are included offline. Original pages open online.</p><a href="https://www.foodsafety.gov/food-safety-charts/food-safety-during-power-outage" target="_blank" rel="noopener noreferrer">FoodSafety.gov refrigerator chart <span class="sr-only">(opens new tab, online)</span><span aria-hidden="true">↗</span></a><a href="https://www.cdc.gov/food-safety/foods/keep-food-safe-after-emergency.html" target="_blank" rel="noopener noreferrer">CDC emergency food guidance <span class="sr-only">(opens new tab, online)</span><span aria-hidden="true">↗</span></a><p class="review-date">Sources reviewed October 24, 2026</p></section>
+      </aside>
+    </div>
+    <details class="method"><summary>How this prototype handles uncertainty</summary><div class="method-content"><h2>Two rules, different evidence</h2><p>The outage window assumes the refrigerator started cold and its doors stayed closed. FoodSafety.gov’s item chart instead addresses exposure at 40°F or higher lasting longer than two hours. Neither rule supplies missing temperatures.</p><p>At exactly two hours, the chart’s longer-than-two-hours condition is not established. At exactly four outage hours, this tool shows the limit and CDC’s cooler-and-ice guidance. Exactly 40°F appears both in CDC’s storage target and in the chart’s exposure heading; ColdPause does not turn that boundary into reassurance.</p><p>Unknown history and uncertain conditions stay unresolved. A cold reading after restoration cannot clear earlier exposure. Chart “Keep” categories describe that chart only; they do not certify a food against every hazard. Unusual spoilage signs trigger disposal guidance. If in doubt about food safety, CDC advises discarding it.</p><h2>Small by design</h2><p>Household refrigerator power outages only. No freezer, medication, infant-feeding, commercial-kitchen, flood or fire assessment. Choose only an exact catalog match. This prototype does not assess contamination, prior handling, expiration, or individual health circumstances.</p><p>Choices are saved locally, without personal information. Clear session removes them and the displayed result; it keeps the offline app. Offline use needs one successful visit and a browser that supports service workers. The source snapshot is dated, so check the original pages when online.</p></div></details>
+  </main>
+  <footer class="footer shell"><span>ColdPause <span class="version">v0.1 local prototype</span></span><span>Built with credited AI assistance. Synthetic demos only.</span></footer>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
