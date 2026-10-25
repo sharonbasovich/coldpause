@@ -2,6 +2,8 @@
 
 A small refrigerator-outage prototype that keeps unknowns visible. Choose one of ten foods, enter only the facts you know, and see item-specific U.S. official guidance with its sources and assumptions.
 
+[Live demo](https://sharonbasovich.github.io/coldpause/) · [Source and CI](https://github.com/sharonbasovich/coldpause/actions/workflows/test.yml) · [Live verification](docs/LIVE-VERIFICATION.md)
+
 **Prototype, not a safety certification.** It cannot measure food, reconstruct temperatures or clear an uncertain history. It is not Ontario-specific advice. Do not taste food to test safety. If in doubt about food safety, CDC advises discarding it.
 
 ## Try it
