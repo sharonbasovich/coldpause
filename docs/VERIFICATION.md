@@ -17,7 +17,7 @@ The pure-rule suite covers all ten catalog mappings and 7,776 synthetic combinat
 
 ## Public hosting verification
 
-The local results above do not by themselves verify a public deployment. A release report must separately confirm the deployed commit, CI outcome, module MIME types, subpath service-worker scope and live offline flow. Until that report exists, those public-host checks remain unverified.
+The public GitHub Pages deployment was separately verified on October 25, 2026: **74/74 actual Chrome checks passed**, comprising the same 52 functional assertions plus 22 deployment checks. All six runtime assets matched the reviewed source byte for byte, including module MIME types, canonical subpath service-worker control and offline cache URLs. Live Chrome-emulated offline reload, edit/reset/persistence, keyboard interactions and reduced motion passed. GitHub CI separately passed all 39 tests on Node 24.21.0. See [live verification and exact run links](LIVE-VERIFICATION.md). These results do not remove the limitations below.
 
 ## Remaining limitations
 

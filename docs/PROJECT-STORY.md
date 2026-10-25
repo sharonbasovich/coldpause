@@ -22,7 +22,7 @@ No temperature inference and no universal “safe” badge. Restoration-only col
 
 ## Verified progress
 
-The final local candidate passed 39 non-network tests and 52 actual Chrome assertions, including boundary values, contradictions, edits, persistence, reset, keyboard focus, reduced motion and Chrome-emulated offline reload. A real mobile screenshot exposed a clarity defect; aligning the full result panel made the caveat and action visible with the headline. Public deployment results should be added only after separate live verification.
+The final local candidate passed 39 non-network tests and 52 actual Chrome assertions, including boundary values, contradictions, edits, persistence, reset, keyboard focus, reduced motion and Chrome-emulated offline reload. A real mobile screenshot exposed a clarity defect; aligning the full result panel made the caveat and action visible with the headline. The public GitHub Pages demo then passed 74/74 Chrome checks: those same 52 functional assertions plus 22 deployment checks for exact assets, MIME types and service-worker scope/cache. GitHub CI passed all 39 tests. See LIVE-VERIFICATION.md for the dated evidence and limits.
 
 ## 60-second synthetic walkthrough
 
