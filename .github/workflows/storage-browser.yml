@@ -1,0 +1,30 @@
+name: Storage browser checks
+on:
+  push:
+    branches: [fix/storage-conflict-20261031, test/storage-baseline-20261031, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm test
+      - run: npm install --no-save --package-lock=false playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/storage-browser-check.mjs
+      - run: node scripts/offline-browser-check.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storage-evidence
+          path: evidence/
+          if-no-files-found: warn

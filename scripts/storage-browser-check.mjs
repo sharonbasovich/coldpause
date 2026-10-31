@@ -1,0 +1,35 @@
+import {chromium} from 'playwright';
+import {createServer} from 'node:http';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {resolve,extname} from 'node:path';
+import assert from 'node:assert/strict';
+const root=process.cwd(),key='coldpause-session-v1',results=[];
+const server=createServer(async(req,res)=>{const path=new URL(req.url,'http://local').pathname;try {const content=await readFile(resolve(root,'.'+(path==='/'?'/index.html':path)));res.writeHead(200,{'Content-Type':({'.html':'text/html','.mjs':'text/javascript','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'})[extname(path)]||'text/html','Cache-Control':'no-store'});res.end(content);}catch{res.writeHead(404);res.end('missing');}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const url=`http://127.0.0.1:${server.address().port}/`;
+await mkdir('evidence/storage',{recursive:true});const browser=await chromium.launch();
+const saved=page=>page.evaluate(key=>localStorage.getItem(key),key);
+async function status(page,text){await page.waitForFunction(text=>document.querySelector('#session-status').textContent.includes(text),text,{timeout:8000});}
+async function seed(page){await page.locator('#food').selectOption('milk');await page.locator('[name="durationKnown"][value="known"]').check();await page.locator('#outageMinutes').fill('90');await status(page,'Choices saved');}
+let currentPage;
+try {
+ const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});const a=await context.newPage(),b=await context.newPage();currentPage=b;
+ await a.goto(url);await seed(a);await b.goto(url);assert.equal(await b.locator('#food').inputValue(),'milk');
+ await a.locator('#clear-session').click();await status(a,'Session cleared');assert.equal(await saved(a),null);
+ await b.locator('#outageMinutes').fill('91');await b.waitForTimeout(150);
+ assert.equal(await saved(a),null,'stale tab must not resurrect cleared food and evidence');
+ await status(b,'Saved choices changed');assert.equal(await b.locator('#food').inputValue(),'milk');assert.equal(await b.locator('#outageMinutes').inputValue(),'91');
+ await b.screenshot({path:'evidence/storage/conflict-mobile.png',fullPage:true});results.push('Clear in one tab cannot be resurrected by stale tab; its draft is retained');
+ await b.locator('#reload-choices').click();await b.waitForLoadState();assert.equal(await b.locator('#food').inputValue(),'');assert.equal(await b.locator('#outageMinutes').inputValue(),'');assert.equal(await saved(b),null);results.push('Explicit reload discards stale draft and restores cleared state');
+ await seed(a);await b.reload();await a.locator('#outageMinutes').fill('100');await status(a,'Choices saved');await b.locator('#outageMinutes').fill('101');await status(b,'Saved choices changed');assert.equal(JSON.parse(await saved(a)).outageMinutes,'100');results.push('Newer saved choices are not overwritten by stale peer');
+ await b.locator('#clear-session').click();assert.equal(await b.locator('#food').inputValue(),'');assert.equal(JSON.parse(await saved(a)).outageMinutes,'100');results.push('Conflicted Clear clears only this tab, preserving newer saved choices');
+ // Hold the same named Web Lock without changing app or storage APIs.
+ await a.evaluate(key=>{window.lockHeld=new Promise(resolve=>{navigator.locks.request(`${key}.write`,()=>new Promise(release=>{window.releaseHeld=release;resolve();}));});},key);await a.evaluate(()=>window.lockHeld);
+ await a.locator('#outageMinutes').fill('102');await status(a,'Saving choices');
+ await a.locator('#clear-session').click();await status(a,'Clearing saved');await a.evaluate(()=>window.releaseHeld());await status(a,'Session cleared');assert.equal(await saved(a),null);results.push('Clear supersedes a queued save without restoring old draft');
+ await seed(a);await a.evaluate(key=>{window.lockHeld=new Promise(resolve=>{navigator.locks.request(`${key}.write`,()=>new Promise(release=>{window.releaseHeld=release;resolve();}));});},key);await a.evaluate(()=>window.lockHeld);
+ await a.locator('#outageMinutes').fill('103');await status(a,'Saving choices');await status(a,'Local saving is unavailable');assert.equal(JSON.parse(await saved(a)).outageMinutes,'90');await a.evaluate(()=>window.releaseHeld());await a.waitForTimeout(200);assert.equal(JSON.parse(await saved(a)).outageMinutes,'90');results.push('Held lock times out without a late write');
+ await context.close();
+ const noLocks=await browser.newContext({viewport:{width:1280,height:900}});await noLocks.addInitScript(()=>Object.defineProperty(navigator,'locks',{value:undefined}));const p=await noLocks.newPage();currentPage=p;await p.goto(url);await p.locator('#food').selectOption('milk');await status(p,'Local saving is unavailable');assert.equal(await saved(p),null);await p.locator('#clear-session').click();await status(p,'Form cleared in this tab only');await p.screenshot({path:'evidence/storage/no-locks-desktop.png',fullPage:true});results.push('Unavailable locks keep session-only choices and honest clear status');await noLocks.close();
+ const normal=await browser.newContext({viewport:{width:1280,height:900}});const q=await normal.newPage();currentPage=q;await q.goto(url);await seed(q);await q.locator('button[type="submit"]').click();await q.locator('#result-title').filter({hasText:'There is not enough evidence'}).waitFor();await q.screenshot({path:'evidence/storage/normal-desktop.png',fullPage:true});await q.locator('#clear-session').click();await status(q,'Session cleared');assert.equal(await q.locator('#food').evaluate(e=>e===document.activeElement),true);results.push('Food guidance and clear focus remain intact');await normal.close();
+ await writeFile('evidence/storage/report.json',JSON.stringify({passed:results,limitations:['Chromium only; no physical device or screen-reader speech verification','Old already-open code versions do not participate in new lock protocol']},null,2));console.log(JSON.stringify({passed:results}));
+} catch(error) {await currentPage?.screenshot({path:'evidence/storage/failure.png',fullPage:true}).catch(()=>{});await writeFile('evidence/storage/failure.txt',String(error.stack));throw error;} finally {await browser.close();await new Promise(r=>server.close(r));}
