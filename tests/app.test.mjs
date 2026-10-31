@@ -25,7 +25,9 @@ class Node {
   scrollIntoView(options){this.scrollOptions=options;}
 }
 
-function harness({saved=null,storageFails=false}={}) {
+function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
+  const timers = new Map(); const channels=[]; let timerId=0, closedPorts=0;
+  class MessageChannel { constructor(){ channels.push(this); this.port1={close(){closedPorts++}}; this.port2={close(){closedPorts++}}; if(reply!==null)queueMicrotask(()=>this.port1.onmessage?.({data:{ready:reply}})); } }
   const document={nodes:new Map(),focused:null,querySelector(selector){return this.nodes.get(selector.slice(1));},getElementById(id){return this.nodes.get(id);},createElement(tag){const n=new Node(tag);n.owner=this;return n;}};
   const make=(id,tag='div')=>{const n=new Node(tag);n.id=id;n.owner=document;document.nodes.set(id,n);return n;};
   for(const match of html.matchAll(/\bid="([^"]+)"/g))make(match[1]);
@@ -46,9 +48,9 @@ function harness({saved=null,storageFails=false}={}) {
   const store=new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
   const localStorage={getItem:key=>{if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{if(storageFails)throw Error('blocked');store.delete(key);}};
   class FormData {constructor(){this.items=Object.entries(controls).filter(([,n])=>!n.disabled).map(([key,n])=>[key,n.value]);} [Symbol.iterator](){return this.items[Symbol.iterator]();}}
-  vm.runInNewContext(code,{document,localStorage,FormData,bindings,navigator:{onLine:true},location:{protocol:'http:'},window:{addEventListener:()=>{}},console});
+  vm.runInNewContext(code,{document,localStorage,FormData,bindings,navigator:{onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:()=>{}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
   function dispatch(node,type,target=node){for(const fn of node.listeners[type]||[])fn({target,preventDefault(){}});attachOwner(result);}
-  return {document,controls,store,result,change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
+  return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
 }
 
 function fillKnown(h) { for(const [key,value] of Object.entries({food:'milk',durationKnown:'known',outageMinutes:'180',doors:'closed',initialCold:'yes',coldSource:'no',spoilage:'no'}))h.change(key,value); }
@@ -119,4 +121,35 @@ test('clearing a session never promises an unverified offline copy',()=>{
   assert.match(h.text('session-status'),/Session cleared\. No food choices saved/);
   assert.match(h.text('session-status'),/cache settings are unchanged/);
   assert.doesNotMatch(h.text('session-status'),/offline.*available/i);
+});
+
+const flush = async () => { for(let i=0;i<20;i++)await Promise.resolve(); };
+test('failed first install cannot leave readiness pending indefinitely', async()=>{
+  const h=harness({serviceWorker:{register:async()=>({}),ready:new Promise(()=>{})}});
+  await flush();assert.equal(h.timers.size,1);h.expire();await flush();
+  assert.equal(h.text('offline-status'),'Offline copy not ready');assert.equal(h.timers.size,0);
+});
+test('missing cache reply times out, closes ports and never claims readiness', async()=>{
+  const h=harness({serviceWorker:{register:async()=>({}),ready:Promise.resolve({active:{postMessage(){}}})},reply:null});
+  await flush();assert.equal(h.timers.size,1);h.expire();await flush();
+  assert.equal(h.text('offline-status'),'Offline copy not ready');assert.equal(h.closedPorts,2);assert.equal(h.timers.size,0);
+});
+test('complete cache reply establishes readiness and clears timers and ports',async()=>{
+  const h=harness({serviceWorker:{register:async()=>({}),ready:Promise.resolve({active:{postMessage(){}}})}});
+  await flush();assert.equal(h.text('offline-status'),'Offline copy ready');assert.equal(h.closedPorts,2);assert.equal(h.timers.size,0);
+});
+test('incomplete cache and registration failure stay explicitly not ready',async()=>{
+  const h=harness({serviceWorker:{register:async()=>({}),ready:Promise.resolve({active:{postMessage(){}}})},reply:false});
+  const failed=harness({serviceWorker:{register:async()=>{throw Error('blocked')},ready:new Promise(()=>{})}});
+  await flush();assert.equal(h.text('offline-status'),'Offline copy not ready');assert.equal(failed.text('offline-status'),'Offline copy not ready');assert.equal(h.closedPorts,2);
+});
+
+test('a late worker or cache reply cannot turn a timed-out check ready',async()=>{
+  let activate;
+  const pending=harness({serviceWorker:{register:async()=>({}),ready:new Promise(r=>activate=r)}});
+  await flush();pending.expire();await flush();activate({active:{postMessage(){}}});await flush();
+  assert.equal(pending.text('offline-status'),'Offline copy not ready');assert.equal(pending.channels.length,0);
+  const h=harness({serviceWorker:{register:async()=>({}),ready:Promise.resolve({active:{postMessage(){}}})},reply:null});
+  await flush();h.expire();await flush();h.channels[0].port1.onmessage({data:{ready:true}});await flush();
+  assert.equal(h.text('offline-status'),'Offline copy not ready');assert.equal(h.closedPorts,2);
 });

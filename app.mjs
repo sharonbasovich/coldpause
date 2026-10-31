@@ -104,11 +104,30 @@ const offline = document.querySelector('#offline-status');
 let offlineReady = false;
 function updateOffline() { offline.textContent = offlineReady ? `Offline copy ready${navigator.onLine ? '' : ' · offline detected'}` : 'Offline copy not ready'; offline.classList.toggle('ready', offlineReady); }
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./sw.js').then(async registration => {
-    await navigator.serviceWorker.ready;
+  // A failed first install leaves serviceWorker.ready pending forever. Bound both
+  // activation and the cache reply; neither a registered worker nor a timeout
+  // establishes that all offline assets are available.
+  function bounded(promise, milliseconds) {
+    let timer;
+    return Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Offline readiness timed out')), milliseconds);
+    })]).finally(() => clearTimeout(timer));
+  }
+  navigator.serviceWorker.register('./sw.js').then(async () => {
+    const registration = await bounded(navigator.serviceWorker.ready, 10000);
     const worker = registration.active;
-    if (worker) { const channel = new MessageChannel(); channel.port1.onmessage = event => { offlineReady = event.data?.ready === true; updateOffline(); }; worker.postMessage('cache-status', [channel.port2]); }
-    updateOffline();
+    if (!worker) throw new Error('No active offline worker');
+    const channel = new MessageChannel();
+    try {
+      offlineReady = await bounded(new Promise((resolve, reject) => {
+        channel.port1.onmessage = event => resolve(event.data?.ready === true);
+        channel.port1.onmessageerror = () => reject(new Error('Invalid offline cache reply'));
+        worker.postMessage('cache-status', [channel.port2]);
+      }), 5000);
+      updateOffline();
+    } finally {
+      channel.port1.close(); channel.port2.close();
+    }
   }).catch(() => { offlineReady = false; updateOffline(); });
 } else updateOffline();
 window.addEventListener('online', updateOffline); window.addEventListener('offline', updateOffline);

@@ -1,4 +1,4 @@
-const CACHE = 'coldpause-v1-20261025g';
+const CACHE = 'coldpause-v1-20261031a';
 const FILES = ['./', './index.html', './styles.css', './app.mjs', './rules.mjs', './icon.svg'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('coldpause-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())); });

@@ -7,7 +7,7 @@ async function workerHarness({failInstall=false}={}) {
   const listeners={}, data=new Map(), deleted=[];
   const cache = { async addAll(files) { if(failInstall)throw Error('storage unavailable'); for(const file of files)data.set(new URL(file,'http://local/').href,{file}); }, async match(request) { const url = new URL(typeof request==='string'?request:request.url,'http://local/'); url.search=''; return data.get(url.href); } };
   let network=0, claimed=0, skipped=0;
-  const context = { URL, Promise, caches:{open:async()=>cache,keys:async()=>['unrelated-cache','coldpause-old','coldpause-v1-20261025g'],delete:async key=>{deleted.push(key);return true;}},fetch:async()=>{network++;throw Error('offline');},self:{location:{origin:'http://local'},addEventListener:(event,fn)=>listeners[event]=fn,skipWaiting:async()=>{skipped++},clients:{claim:async()=>{claimed++}}} };
+  const context = { URL, Promise, caches:{open:async()=>cache,keys:async()=>['unrelated-cache','coldpause-old','coldpause-v1-20261031a'],delete:async key=>{deleted.push(key);return true;}},fetch:async()=>{network++;throw Error('offline');},self:{location:{origin:'http://local'},addEventListener:(event,fn)=>listeners[event]=fn,skipWaiting:async()=>{skipped++},clients:{claim:async()=>{claimed++}}} };
   vm.runInNewContext(await readFile(new URL('../sw.js',import.meta.url),'utf8'),context);
   async function lifecycle(type) { let done; listeners[type]({waitUntil:promise=>done=promise}); await done; }
   return {listeners,data,deleted,lifecycle,get network(){return network},get claimed(){return claimed},get skipped(){return skipped}};
