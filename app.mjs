@@ -93,8 +93,9 @@ async function persist(clear = false) {
   }
 }
 window.addEventListener('storage', event => {
-  if (event.storageArea !== localStorage || (event.key !== KEY && event.key !== null)) return;
+  if (event.key !== KEY && event.key !== null) return;
   try {
+    if (event.storageArea !== localStorage) return;
     if (localStorage.getItem(KEY) === storageSnapshot) return;
   } catch { storageReadable = false; }
   ++writeVersion; writeController?.abort(); pendingWrite = false;
