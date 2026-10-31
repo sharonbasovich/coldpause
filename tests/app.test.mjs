@@ -48,7 +48,7 @@ function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
   const store=new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
   const localStorage={getItem:key=>{if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{if(storageFails)throw Error('blocked');store.delete(key);}};
   class FormData {constructor(){this.items=Object.entries(controls).filter(([,n])=>!n.disabled).map(([key,n])=>[key,n.value]);} [Symbol.iterator](){return this.items[Symbol.iterator]();}}
-  vm.runInNewContext(code,{document,localStorage,FormData,bindings,navigator:{onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:()=>{}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
+  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:async(name,options,callback)=>callback()},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:()=>{}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
   function dispatch(node,type,target=node){for(const fn of node.listeners[type]||[])fn({target,preventDefault(){}});attachOwner(result);}
   return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
 }
@@ -96,9 +96,9 @@ test('validation focuses linked error summary and clears invalid field state on 
   h.change('food','milk');assert.equal(h.controls.food.attrs['aria-invalid'],undefined);fillKnown(h);h.change('evidence','warm');h.change('warmMinutes','181');h.submit();assert.match(h.text('errors'),/cannot exceed/);assert.equal(h.controls.warmMinutes.attrs['aria-invalid'],'true');
 });
 
-test('clear is repeatable, removes saved choices and result, resets hidden fields and focuses food',()=>{
+test('clear is repeatable, removes saved choices and result, resets hidden fields and focuses food',async()=>{
   const h=harness();fillKnown(h);h.change('evidence','warm');h.change('warmMinutes','121');h.submit();
-  for(let i=0;i<2;i++){h.clear();assert.equal(h.store.size,0);assert.equal(h.controls.food.value,'');assert.equal(h.controls.outageMinutes.value,'');assert.equal(h.controls.warmMinutes.value,'');assert.equal(h.controls.warmMinutes.disabled,true);assert.equal(h.document.focused.id,'food');assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/Session cleared/);}
+  for(let i=0;i<2;i++){h.clear();await flush();assert.equal(h.store.size,0);assert.equal(h.controls.food.value,'');assert.equal(h.controls.outageMinutes.value,'');assert.equal(h.controls.warmMinutes.value,'');assert.equal(h.controls.warmMinutes.disabled,true);assert.equal(h.document.focused.id,'food');assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/Session cleared/);}
 });
 
 test('reload restores choices without restoring or generating a decision',()=>{
@@ -115,8 +115,8 @@ test('unsupported offline environment never claims offline readiness',()=>{
   const h=harness();assert.equal(h.text('offline-status'),'Offline copy not ready');
 });
 
-test('clearing a session never promises an unverified offline copy',()=>{
-  const h=harness();h.clear();
+test('clearing a session never promises an unverified offline copy',async()=>{
+  const h=harness();h.clear();await flush();
   assert.equal(h.text('offline-status'),'Offline copy not ready');
   assert.match(h.text('session-status'),/Session cleared\. No food choices saved/);
   assert.match(h.text('session-status'),/cache settings are unchanged/);

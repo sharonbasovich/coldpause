@@ -44,12 +44,67 @@ function showErrors(items) {
   });
   errors.append(list); errors.focus();
 }
-function persist() {
-  let message;
-  try { localStorage.setItem(KEY, JSON.stringify(readForm())); message = 'Choices saved in this browser. Clear session removes your choices and result.'; }
-  catch { message = 'Local saving is unavailable. Choices will be lost on reload.'; }
-  if (sessionStatus.textContent !== message) sessionStatus.textContent = message;
+let storageSnapshot = null, storageReadable = true, storageConflict = false;
+let writeVersion = 0, pendingWrite = false, writeController;
+const reloadChoices = document.querySelector('#reload-choices');
+const conflictMessage = 'Saved choices changed in another tab. This tab keeps its choices and will not overwrite them. Reload to discard this tab’s choices and use the saved choices.';
+function showStorageConflict(clear = false) {
+  storageConflict = true;
+  sessionStatus.textContent = clear ? 'Form cleared in this tab only. Saved choices changed in another tab and are unchanged. Further edits stay in this tab. Reload to discard this tab’s choices and use the saved choices.' : conflictMessage;
+  reloadChoices.hidden = false;
 }
+async function persist(clear = false) {
+  const version = ++writeVersion;
+  writeController?.abort();
+  pendingWrite = false;
+  if (storageConflict) { showStorageConflict(clear); return; }
+  if (!storageReadable || !navigator.locks?.request) {
+    sessionStatus.textContent = clear
+      ? 'Form cleared in this tab only. Browser storage could not be safely changed; stored data could not be checked or removed.'
+      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved browser data is unchanged.';
+    return;
+  }
+  const snapshot = clear ? null : JSON.stringify(readForm());
+  const controller = new AbortController(); writeController = controller;
+  pendingWrite = true;
+  sessionStatus.textContent = clear ? 'Clearing saved choices…' : 'Saving choices…';
+  const timer = setTimeout(() => controller.abort(), 2000);
+  try {
+    // Short synchronous critical section: compare and write under one shared lock.
+    const outcome = await navigator.locks.request(`${KEY}.write`, { signal: controller.signal }, () => {
+      if (controller.signal.aborted || version !== writeVersion) return 'cancelled';
+      if (localStorage.getItem(KEY) !== storageSnapshot) return 'conflict';
+      if (clear) localStorage.removeItem(KEY); else localStorage.setItem(KEY, snapshot);
+      storageSnapshot = snapshot;
+      return 'saved';
+    });
+    if (version !== writeVersion) return;
+    if (outcome === 'conflict') showStorageConflict(clear);
+    else if (outcome === 'saved') sessionStatus.textContent = clear
+      ? 'Session cleared. No food choices saved. Offline cache settings are unchanged.'
+      : 'Choices saved in this browser. Clear session removes your choices and result.';
+  } catch {
+    if (version === writeVersion) sessionStatus.textContent = clear
+      ? 'Form cleared in this tab only. Saved choices could not be removed; browser storage is unchanged.'
+      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved browser data is unchanged.';
+  } finally {
+    clearTimeout(timer);
+    if (version === writeVersion) pendingWrite = false;
+  }
+}
+window.addEventListener('storage', event => {
+  if (event.storageArea !== localStorage || (event.key !== KEY && event.key !== null)) return;
+  try {
+    if (localStorage.getItem(KEY) === storageSnapshot) return;
+  } catch { storageReadable = false; }
+  ++writeVersion; writeController?.abort(); pendingWrite = false;
+  showStorageConflict();
+});
+window.addEventListener('beforeunload', event => {
+  if (!pendingWrite) return;
+  event.preventDefault(); event.returnValue = '';
+});
+reloadChoices.addEventListener('click', () => location.reload());
 function invalidate() {
   if (reviewed) {
     resultPanel.className = 'result empty';
@@ -93,11 +148,12 @@ form.addEventListener('change', event => {
 form.addEventListener('submit', event => { event.preventDefault(); syncFields(); const result = evaluate(readForm()); if (result.kind === 'invalid') { invalidate(); showErrors(result.errors); } else { clearErrors(); renderResult(result); persist(); } });
 document.querySelector('#clear-session').addEventListener('click', () => {
   form.reset(); writeForm(DEFAULTS); clearErrors(); reviewed = false; resultPanel.className = 'result empty'; resultPanel.innerHTML = initialResult;
-  try { localStorage.removeItem(KEY); sessionStatus.textContent = 'Session cleared. No food choices saved. Offline cache settings are unchanged.'; } catch { sessionStatus.textContent = 'Form cleared. Browser storage is unavailable; stored data could not be checked.'; }
-  announcement.textContent = 'Session cleared.'; document.querySelector('#food').focus();
+  persist(true);
+  announcement.textContent = 'Form cleared in this tab.'; document.querySelector('#food').focus();
 });
 
-try { const saved = localStorage.getItem(KEY); if (saved) { writeForm(normalize(JSON.parse(saved))); sessionStatus.textContent = 'Saved choices restored. Review this food again for fresh guidance.'; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
+try { storageSnapshot = localStorage.getItem(KEY); } catch { storageReadable = false; }
+try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); sessionStatus.textContent = 'Saved choices restored. Review this food again for fresh guidance.'; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
 syncFields();
 
 const offline = document.querySelector('#offline-status');
