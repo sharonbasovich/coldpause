@@ -13,7 +13,7 @@ A small refrigerator-outage prototype that keeps unknowns visible. Choose one of
 3. Review the result and its assumptions. Changing any fact removes the old guidance. Changing food clears food-specific observations.
 4. After one successful online visit, wait for “Offline copy ready.” A supported browser can then reload the application offline. The original official pages still need a connection.
 
-Choices stay in browser local storage. Clear session removes choices and the displayed result while retaining the offline application. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
+When browser storage and Web Locks are available, choices are saved locally. A successful Clear session removes saved choices and the displayed result while retaining the offline application. Newer changes or a reset in another updated tab are never silently overwritten: this tab retains its draft with an explicit reload/discard option. Without safe storage access, choices remain in this tab only and the status explains whether a clear reached saved data. Reload all older open tabs to use the same protection. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
 
 ## Run locally
 
