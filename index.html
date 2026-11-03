@@ -39,7 +39,7 @@
           <p id="food-note" class="hint">Choose the exact type. Guidance for one food does not apply to the whole refrigerator.</p>
         </section>
         <section class="form-section">
-          <div class="section-title"><span class="step" aria-hidden="true">2</span><h2>Record the outage facts</h2></div>
+          <div class="section-title"><span class="step" aria-hidden="true">2</span><h2 id="outage-facts" tabindex="-1">Record the outage facts</h2></div>
           <fieldset><legend>Do you know the total time without power?</legend><div class="radio-row"><label><input type="radio" name="durationKnown" value="unknown" checked> No / unsure</label><label><input type="radio" name="durationKnown" value="known"> Yes</label></div></fieldset>
           <div id="duration-fields" class="dependent" hidden><label for="outageMinutes">Total outage duration, in minutes</label><input type="number" id="outageMinutes" name="outageMinutes" min="0" max="10080" step="1" inputmode="numeric" aria-describedby="duration-hint"><p id="duration-hint" class="hint">From power loss to restoration, or to now if still out. 3 hours = 180 minutes. Update this yourself as time passes.</p></div>
           <div class="field-grid"><div><label for="doors">Did the doors stay closed?</label><select id="doors" name="doors"><option value="unknown">Not sure</option><option value="closed">Yes, throughout</option><option value="opened">No, opened</option></select></div><div><label for="initialCold">Was it initially at 40°F or below?</label><select id="initialCold" name="initialCold"><option value="unknown">Not sure</option><option value="yes">Yes, known</option><option value="no">No</option></select></div></div>
@@ -51,7 +51,7 @@
           <div id="warm-fields" class="dependent" hidden><label for="warmMinutes">Total measured minutes at or above 40°F</label><input type="number" name="warmMinutes" id="warmMinutes" min="0" max="10080" step="1" inputmode="numeric" aria-describedby="warm-hint"><p id="warm-hint" class="hint">A reliable record must cover this food's whole outage exposure. Do not enter outage minutes as a temperature estimate. The chart includes exactly 40°F.</p></div>
           <label for="spoilage">Any unusual smell, color or texture?</label><select id="spoilage" name="spoilage" aria-describedby="spoilage-hint"><option value="unknown">Not sure / not checked</option><option value="no">None noticed</option><option value="yes">Yes</option></select><p id="spoilage-hint" class="hint">Normal appearance or smell does not establish safety. Never taste food to test it.</p>
         </section>
-        <div class="form-footer"><button type="submit" class="primary">Review this food <span aria-hidden="true">↗</span></button><p>Every result depends on the facts you enter.</p></div>
+        <div class="form-footer"><p id="fact-check-note" class="fact-check-note" hidden>Before reviewing again, check every entry. If power is still out, update the total outage minutes. Saved entries are not a current reading; ColdPause does not count elapsed time.</p><button type="submit" class="primary">Review this food <span aria-hidden="true">↗</span></button><p>Every result depends on the facts you enter.</p></div>
       </form>
       <aside class="guidance-column" aria-label="Item guidance">
         <section id="result" class="result empty">

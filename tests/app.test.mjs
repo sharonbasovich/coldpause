@@ -21,16 +21,20 @@ class Node {
   addEventListener(type,fn){(this.listeners[type]??=[]).push(fn);}
   querySelector(tag){return this.children.flatMap(n=>[n,...n.descendants()]).find(n=>n.tagName===tag);}
   descendants(){return this.children.flatMap(n=>[n,...n.descendants()]);}
+  contains(node){return node===this||this.descendants().includes(node);}
   focus(){this.owner.focused=this;}
   scrollIntoView(options){this.scrollOptions=options;}
 }
 
 function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
+  const lifecycle = {document:{},window:{}};
   const timers = new Map(); const channels=[]; let timerId=0, closedPorts=0;
   class MessageChannel { constructor(){ channels.push(this); this.port1={close(){closedPorts++}}; this.port2={close(){closedPorts++}}; if(reply!==null)queueMicrotask(()=>this.port1.onmessage?.({data:{ready:reply}})); } }
-  const document={nodes:new Map(),focused:null,querySelector(selector){return this.nodes.get(selector.slice(1));},getElementById(id){return this.nodes.get(id);},createElement(tag){const n=new Node(tag);n.owner=this;return n;}};
+  const document={nodes:new Map(),focused:null,visibilityState:'visible',addEventListener:(type,fn)=>{(lifecycle.document[type]??=[]).push(fn);},querySelector(selector){return this.nodes.get(selector.slice(1));},getElementById(id){return this.nodes.get(id);},createElement(tag){const n=new Node(tag);n.owner=this;return n;}};
+  Object.defineProperty(document,'activeElement',{get(){return this.focused;}});
   const make=(id,tag='div')=>{const n=new Node(tag);n.id=id;n.owner=document;document.nodes.set(id,n);return n;};
   for(const match of html.matchAll(/\bid="([^"]+)"/g))make(match[1]);
+  document.nodes.get('fact-check-note').hidden=true;
   const form=document.nodes.get('food-form'), controls={};
   for(const match of html.matchAll(/<select([^>]+)>(.*?)<\/select>/gs)) {
     const id=match[1].match(/id="([^"]+)"/)[1],name=match[1].match(/name="([^"]+)"/)[1],value=match[2].match(/value="([^"]*)"/)[1];
@@ -48,9 +52,9 @@ function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
   const store=new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
   const localStorage={getItem:key=>{if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{if(storageFails)throw Error('blocked');store.delete(key);}};
   class FormData {constructor(){this.items=Object.entries(controls).filter(([,n])=>!n.disabled).map(([key,n])=>[key,n.value]);} [Symbol.iterator](){return this.items[Symbol.iterator]();}}
-  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:async(name,options,callback)=>callback()},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:()=>{}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
+  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:async(name,options,callback)=>callback()},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:(type,fn)=>{(lifecycle.window[type]??=[]).push(fn);}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
   function dispatch(node,type,target=node){for(const fn of node.listeners[type]||[])fn({target,preventDefault(){}});attachOwner(result);}
-  return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
+  return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},event(target,type,data={}){for(const fn of lifecycle[target][type]||[])fn(data);attachOwner(result);},visibility(value){document.visibilityState=value;this.event('document','visibilitychange');},click(node){dispatch(node,'click');},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
 }
 
 function fillKnown(h) { for(const [key,value] of Object.entries({food:'milk',durationKnown:'known',outageMinutes:'180',doors:'closed',initialCold:'yes',coldSource:'no',spoilage:'no'}))h.change(key,value); }
@@ -103,7 +107,7 @@ test('clear is repeatable, removes saved choices and result, resets hidden field
 
 test('reload restores choices without restoring or generating a decision',()=>{
   const first=harness();fillKnown(first);first.submit();
-  const h=harness({saved:first.store.get('coldpause-session-v1')});assert.equal(h.controls.food.value,'milk');assert.equal(h.controls.outageMinutes.value,'180');assert.equal(h.controls.outageMinutes.disabled,false);assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/Review this food again/);
+  const h=harness({saved:first.store.get('coldpause-session-v1')});assert.equal(h.controls.food.value,'milk');assert.equal(h.controls.outageMinutes.value,'180');assert.equal(h.controls.outageMinutes.disabled,false);assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/not a current reading/);assert.match(h.text('session-status'),/update the duration/);assert.equal(h.document.nodes.get('fact-check-note').hidden,false);
 });
 
 test('corrupt or unavailable storage remains explicit and never crashes the check',()=>{
@@ -152,4 +156,70 @@ test('a late worker or cache reply cannot turn a timed-out check ready',async()=
   const h=harness({serviceWorker:{register:async()=>({}),ready:Promise.resolve({active:{postMessage(){}}})},reply:null});
   await flush();h.expire();await flush();h.channels[0].port1.onmessage({data:{ready:true}});await flush();
   assert.equal(h.text('offline-status'),'Offline copy not ready');assert.equal(h.closedPorts,2);
+});
+
+test('returning to a hidden reviewed page removes the old snapshot without changing facts or storage',async()=>{
+  const h=harness();fillKnown(h);h.submit();await flush();
+  const before=h.store.get('coldpause-session-v1');const focused=h.controls.outageMinutes;focused.focus();
+  h.visibility('hidden');assert.match(h.result.textContent,/Within the general closed-door window/);
+  h.visibility('visible');await flush();
+  assert.match(h.result.textContent,/Check your facts after returning/);
+  assert.doesNotMatch(h.result.textContent,/Within the general closed-door window/);
+  assert.match(h.result.textContent,/update the total outage minutes/);
+  assert.match(h.result.textContent,/not a running timer/);
+  assert.match(h.result.textContent,/Never taste food to test it/);
+  assert.equal(h.controls.outageMinutes.value,'180');assert.equal(h.store.get('coldpause-session-v1'),before);
+  assert.equal(h.document.focused,focused);assert.equal(h.document.nodes.get('fact-check-note').hidden,false);
+});
+
+test('a prior discard warning remains explicit after an interruption and repeated return events are idempotent',()=>{
+  const h=harness();fillKnown(h);h.change('outageMinutes','241');h.submit();
+  assert.match(h.result.textContent,/Discard this food/);h.visibility('hidden');h.visibility('visible');
+  assert.equal(h.result.className,'result discard');assert.match(h.result.textContent,/Your previous review advised: Discard this food/);
+  assert.match(h.result.textContent,/Leaving the page does not reverse that advice/);
+  assert.match(h.text('announcement'),/previous review advised discarding/);
+  const text=h.result.textContent,notice=h.text('announcement'),heading=h.result.querySelector('h2');
+  h.event('window','focus');h.event('window','pageshow',{persisted:true});h.visibility('hidden');h.visibility('visible');
+  assert.equal(h.result.textContent,text);assert.equal(h.text('announcement'),notice);assert.equal(h.result.querySelector('h2'),heading);
+});
+
+test('back-forward restored results pause even when there was no observed visibility event',()=>{
+  const h=harness();fillKnown(h);h.submit();
+  h.event('window','pageshow',{persisted:true});assert.match(h.result.textContent,/Check your facts after returning/);
+  assert.equal(h.controls.outageMinutes.value,'180');assert.equal(h.document.focused.id,'result-title');
+});
+
+test('focus alone and ordinary pageshow do not invalidate a current review',()=>{
+  const h=harness();fillKnown(h);h.submit();const heading=h.result.querySelector('h2');
+  h.event('window','focus');h.event('window','pageshow',{persisted:false});h.visibility('visible');
+  assert.equal(h.result.querySelector('h2'),heading);assert.match(h.result.textContent,/Within the general closed-door window/);
+});
+
+test('pagehide followed by visible focus pauses once without requiring a persisted pageshow',()=>{
+  const h=harness();fillKnown(h);h.submit();h.event('window','pagehide');h.event('window','focus');
+  assert.match(h.result.textContent,/Check your facts after returning/);
+  const button=h.result.querySelector('button');h.click(button);
+  assert.equal(h.document.focused.id,'outage-facts');assert.deepEqual({...h.document.focused.scrollOptions},{block:'start',behavior:'auto'});
+});
+
+test('new review requires explicit submission, uses updated entries, and can be paused again',()=>{
+  const h=harness();fillKnown(h);h.submit();h.visibility('hidden');h.visibility('visible');
+  h.input('outageMinutes','241');assert.match(h.result.textContent,/Facts changed/);
+  assert.equal(h.document.nodes.get('fact-check-note').hidden,false);
+  h.submit();assert.match(h.result.textContent,/Discard this food/);assert.equal(h.document.nodes.get('fact-check-note').hidden,true);
+  h.visibility('hidden');h.visibility('visible');assert.match(h.result.textContent,/previous review advised: Discard this food/);
+});
+
+test('drafts, invalid forms and cleared sessions never gain a paused or restored decision',()=>{
+  const h=harness();fillKnown(h);h.visibility('hidden');h.visibility('visible');assert.match(h.result.textContent,/A pause before a decision/);
+  h.input('outageMinutes','');h.submit();h.event('window','pageshow',{persisted:true});assert.match(h.text('errors'),/whole number/);assert.doesNotMatch(h.result.textContent,/Check your facts after returning/);
+  h.input('outageMinutes','241');h.submit();h.visibility('hidden');h.clear();h.visibility('visible');h.event('window','pageshow',{persisted:true});
+  assert.match(h.result.textContent,/A pause before a decision/);assert.doesNotMatch(h.result.textContent,/Discard/);assert.equal(h.document.nodes.get('fact-check-note').hidden,true);
+});
+
+test('a restored snapshot retains its fact-check reminder through edits until an explicit review',()=>{
+  const first=harness();fillKnown(first);first.submit();const h=harness({saved:first.store.get('coldpause-session-v1')});
+  h.input('outageMinutes','181');assert.equal(h.document.nodes.get('fact-check-note').hidden,false);
+  assert.match(h.result.textContent,/A pause before a decision/);h.submit();assert.equal(h.document.nodes.get('fact-check-note').hidden,true);
+  assert.match(h.result.textContent,/not a live reading/);
 });
