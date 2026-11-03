@@ -23,7 +23,13 @@ await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: process.env.COLDPAUSE_HEADED !== '1', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
 let page;
 const saved = p => p.evaluate(k => localStorage.getItem(k), key);
-const visible = (p, state) => p.waitForFunction(state => document.visibilityState === state, state);
+const visible = (p, state) => p.waitForFunction(state => document.visibilityState === state, state, { polling: 50 });
+async function nativeVisibility(p) {
+  // Playwright 1.56.1 crPage.ts enables this override for every new page. Turn
+  // it off so tab switches exercise real browser visibility, not fake focus.
+  const session = await p.context().newCDPSession(p);
+  await session.send('Emulation.setFocusEmulationEnabled', { enabled: false });
+}
 const title = p => p.locator('#result-title').textContent();
 async function seed(p, minutes = '180') {
   await p.locator('#food').selectOption('milk');
@@ -47,13 +53,13 @@ try {
     const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce' });
     const errors = []; context.on('page', p => p.on('pageerror', e => errors.push(String(e))));
     await context.addInitScript(() => window.addEventListener('pageshow', e => { window.lastPersistedShow = e.persisted; }));
-    page = await context.newPage(); await page.goto(url); await seed(page); await submit(page);
+    page = await context.newPage(); await page.goto(url); await nativeVisibility(page); await seed(page); await submit(page);
     assert.equal(await title(page), 'Within the general closed-door window');
     await page.locator('#outageMinutes').focus();
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     assert.equal(await title(page), 'Within the general closed-door window');
     const before = await saved(page);
-    const other = await context.newPage(); await other.goto('about:blank');
+    const other = await context.newPage(); await other.goto('about:blank'); await nativeVisibility(other);
     await awayAndBack(page, other);
     assert.equal(await title(page), 'Check your facts after returning');
     assert.equal(await page.locator('#outageMinutes').inputValue(), '180');
@@ -82,14 +88,14 @@ try {
     passed.push(`${label}: prior disposal warning and original caution remain visible; repeated returns are idempotent with no horizontal overflow`);
 
     await page.locator('#outageMinutes').fill('180'); await submit(page);
-    await page.goto('about:blank'); await page.goBack();
+    await page.goto('about:blank'); await page.goBack(); await nativeVisibility(page);
     await page.waitForFunction(() => document.querySelector('#result-title'));
     assert.notEqual(await title(page), 'Within the general closed-door window');
     assert.equal(await page.locator('#outageMinutes').inputValue(), '180');
     history.push({ viewport: label, persisted: await page.evaluate(() => window.lastPersistedShow), result: await title(page) });
     passed.push(`${label}: actual history Back never resurrects the conditional snapshot`);
 
-    await page.reload();
+    await page.reload(); await nativeVisibility(page);
     assert.equal(await title(page), 'A pause before a decision.');
     assert.match(await page.locator('#session-status').textContent(), /not a current reading/);
     assert.equal(await page.locator('#fact-check-note').isVisible(), true);
@@ -102,7 +108,7 @@ try {
     await context.route('https://www.foodsafety.gov/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Source navigation test fixture</title><p>Synthetic destination for source-link lifecycle test.</p>' }));
     const popupPromise = context.waitForEvent('page');
     await page.locator('.result-sources a').first().focus(); await page.keyboard.press('Enter');
-    const popup = await popupPromise; await popup.waitForLoadState();
+    const popup = await popupPromise; await popup.waitForLoadState(); await nativeVisibility(popup);
     assert.match(popup.url(), /^https:\/\/www\.foodsafety\.gov\/food-safety-charts\//);
     await popup.bringToFront(); await visible(page, 'hidden');
     await popup.close(); await page.bringToFront(); await visible(page, 'visible');
@@ -110,7 +116,7 @@ try {
     passed.push(`${label}: keyboard-opened source tab intentionally pauses the result on return (synthetic destination)`);
 
     await page.waitForFunction(() => document.querySelector('#offline-status').textContent.startsWith('Offline copy ready'));
-    await context.setOffline(true); await page.reload();
+    await context.setOffline(true); await page.reload(); await nativeVisibility(page);
     assert.equal(await title(page), 'A pause before a decision.');
     assert.equal(await page.locator('#outageMinutes').inputValue(), '181');
     assert.equal(await page.locator('#fact-check-note').isVisible(), true);
