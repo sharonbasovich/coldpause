@@ -11,7 +11,8 @@ A small refrigerator-outage prototype that keeps unknowns visible. Choose one of
 1. Choose an exact catalog match.
 2. Record known or unknown outage duration, door conditions, initial cold conditions, added cooling and food-temperature evidence.
 3. Review the result and its assumptions. Changing any fact removes the old guidance. Changing food clears food-specific observations.
-4. After one successful online visit, wait for “Offline copy ready.” A supported browser can then reload the application offline. The original official pages still need a connection.
+4. If you leave and return, check your entries before reviewing again. Update outage minutes if power is still out. A returned or restored snapshot is not a current reading.
+5. After one successful online visit, wait for “Offline copy ready.” A supported browser can then reload the application offline. The original official pages still need a connection.
 
 When browser storage and Web Locks are available, choices are saved locally. A successful Clear session removes saved choices and the displayed result while retaining the offline application. Newer changes or a reset in another updated tab are never silently overwritten: this tab retains its draft with an explicit reload/discard option. Without safe storage access, choices remain in this tab only and the status explains whether a clear reached saved data. Reload all older open tabs to use the same protection. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
 
@@ -28,6 +29,12 @@ npm start
 
 Open http://127.0.0.1:4173/ in a current browser. The helper binds only to loopback. Service workers require localhost or HTTPS; opening index.html directly does not provide the offline workflow.
 
+## Returning to a check
+
+When a reviewed page becomes hidden and returns, or a browser restores it from back/forward history, the displayed result pauses. Inputs stay unchanged. The reminder asks you to check every entry and update the outage duration if power is still out; pressing Review does not make old facts current. A prior disposal warning and the original tasting caution remain explicit. Opening an official-source tab intentionally follows the same rule when that tab hides the app. Focus changes alone do not pause a visible page.
+
+Saved choices restore without a result and with the same fact-check reminder. This is a UI snapshot safeguard, not a food-safety time limit. ColdPause does not run an outage timer, infer temperatures or detect changed conditions. A continuously visible page still requires manual updates.
+
 ## Two rules, different evidence
 
 - The general four-hour refrigerator window assumes closed doors and a refrigerator that started cold. It is not a temperature estimate. Exactly four hours is treated as the window reached, with no clearance.
@@ -42,7 +49,9 @@ U.S. household refrigerator power outages only. Ten exact catalog entries; no su
 
 ## Verification and accessibility
 
-The final local candidate passed **39 non-network Node tests** and **52 actual Chrome assertions**. The latter include repeated focus assertions, not 52 distinct workflows. They cover timing boundaries, missing/contradictory inputs, repeated edits, persistence, clear session, keyboard interactions, reduced motion and Chrome-emulated offline reload. [Verification details and limitations](docs/VERIFICATION.md).
+The original October 24 candidate passed **39 non-network Node tests** and **52 actual Chrome assertions**. The latter include repeated focus assertions, not 52 distinct workflows. They cover timing boundaries, missing/contradictory inputs, repeated edits, persistence, clear session, keyboard interactions, reduced motion and Chrome-emulated offline reload. [Verification details and limitations](docs/VERIFICATION.md).
+
+The November 3 review-freshness update has **52 non-network Node tests**. Its additional browser script is `scripts/freshness-browser-check.mjs`; the Review freshness workflow runs real Chromium keyboard, history, reload and offline checks at desktop and 390px widths, alongside the existing storage and offline suites. Paused-state rendering uses a labeled synthetic lifecycle event because the test driver keeps native tab visibility active; hidden/visible events are also covered by handler tests. The workflow uploads screenshots and a report rather than treating handler simulations as browser evidence.
 
 Native controls, associated labels/hints/errors, a skip link, live announcements and visible keyboard focus are included. No complete WCAG audit or screen-reader speech test has been performed. Chrome desktop and a resized mobile viewport were tested; physical devices, other browsers, physical network disconnection and full storage/cache lifecycle were not.
 

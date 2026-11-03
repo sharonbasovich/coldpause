@@ -8,6 +8,8 @@ const errors = document.querySelector('#errors');
 const sessionStatus = document.querySelector('#session-status');
 const announcement = document.querySelector('#announcement');
 let reviewed = false;
+let reviewedResult = null, reviewInterrupted = false, pausedReview = false;
+const factCheckNote = document.querySelector('#fact-check-note');
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text) node.textContent = text; if (className) node.className = className; return node; };
 
 function readForm() { return normalize(Object.fromEntries(new FormData(form))); }
@@ -107,21 +109,55 @@ window.addEventListener('beforeunload', event => {
 });
 reloadChoices.addEventListener('click', () => location.reload());
 function invalidate() {
-  if (reviewed) {
+  if (reviewed || pausedReview) {
     resultPanel.className = 'result empty';
     const symbol = el('div', 'Ⅱ', 'result-symbol'); symbol.setAttribute('aria-hidden', 'true');
     resultPanel.replaceChildren(symbol, el('h2', 'Facts changed. Review again.'), el('p', 'The previous guidance has been removed. Review this food with the updated facts.'));
     resultPanel.querySelector('h2').id = 'result-title'; resultPanel.querySelector('h2').tabIndex = -1;
     announcement.textContent = 'Facts changed. Previous guidance removed.';
-    reviewed = false;
+    reviewed = false; reviewedResult = null; reviewInterrupted = false; pausedReview = false;
   }
 }
+function pauseInterruptedReview() {
+  if (!reviewed || !reviewInterrupted) return;
+  const previous = reviewedResult;
+  const focusWasInResult = resultPanel.contains(document.activeElement);
+  reviewed = false; reviewedResult = null; reviewInterrupted = false; pausedReview = true;
+  factCheckNote.hidden = false;
+  resultPanel.className = `result ${previous.kind === 'discard' ? 'discard' : 'uncertain'}`;
+  const heading = el('h2', 'Check your facts after returning'); heading.id = 'result-title'; heading.tabIndex = -1;
+  resultPanel.replaceChildren(el('p', previous.food.name, 'result-food'), heading);
+  if (previous.kind === 'discard') resultPanel.append(el('p', 'Your previous review advised: Discard this food. Leaving the page does not reverse that advice.', 'next-action'));
+  resultPanel.append(el('p', 'The previous result was based on the facts entered before you left. Your entries are unchanged; check them before reviewing again.'), el('p', 'If power is still out, update the total outage minutes. ColdPause is not a running timer and does not infer temperatures.', 'review-reminder'));
+  const check = el('button', 'Check outage facts', 'primary'); check.type = 'button';
+  check.addEventListener('click', () => {
+    const target = document.querySelector('#outage-facts'); target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'start', behavior: 'auto' });
+  });
+  resultPanel.append(check, el('p', previous.caution, 'result-footnote'));
+  // Preserve focus in the replaced panel, but never steal it from the form or
+  // scroll the page on a lifecycle event.
+  if (focusWasInResult) heading.focus({ preventScroll: true });
+  announcement.textContent = `Check your facts after returning. ${previous.kind === 'discard' ? 'Your previous review advised discarding this food. ' : ''}If power is still out, update the total outage minutes before reviewing again.`;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { if (reviewed) reviewInterrupted = true; }
+  else pauseInterruptedReview();
+});
+window.addEventListener('pagehide', () => { if (reviewed) reviewInterrupted = true; });
+window.addEventListener('pageshow', event => {
+  if (event.persisted && reviewed) reviewInterrupted = true;
+  if (document.visibilityState !== 'hidden') pauseInterruptedReview();
+});
+window.addEventListener('focus', () => {
+  if (document.visibilityState !== 'hidden') pauseInterruptedReview();
+});
 function renderResult(result) {
   resultPanel.className = `result ${result.kind}`;
   resultPanel.replaceChildren();
   resultPanel.append(el('p', result.food.name, 'result-food'));
   const heading = el('h2', result.title); heading.id = 'result-title'; heading.tabIndex = -1;
   resultPanel.append(heading, el('p', result.message), el('p', result.next, 'next-action'));
+  resultPanel.append(el('p', 'Based on your entered facts, not a live reading. If power is still out, update the duration yourself.', 'review-reminder'));
   resultPanel.append(el('h3', 'Why this guidance appears'), el('p', result.rule, 'rule-text'));
   if (result.gaps.length) { resultPanel.append(el('h3', 'Still unknown or limited')); const ul = el('ul'); result.gaps.forEach(gap => ul.append(el('li', gap))); resultPanel.append(ul); }
   const details = el('details'); details.append(el('summary', 'Your facts and assumptions'));
@@ -129,7 +165,7 @@ function renderResult(result) {
   const assumptions = el('ul'); result.assumptions.forEach(item => assumptions.append(el('li', item))); details.append(assumptions); resultPanel.append(details);
   resultPanel.append(el('h3', 'Official rule sources'));
   const links = el('ul', '', 'result-sources'); result.sources.forEach(key => { const li = el('li'), link = el('a', `${SOURCES[key].label} (online)`); link.href = SOURCES[key].url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', `${SOURCES[key].label}, opens a new tab, online`); li.append(link); links.append(li); }); resultPanel.append(links, el('p', result.caution, 'result-footnote'));
-  reviewed = true;
+  reviewed = true; reviewedResult = result; reviewInterrupted = false; pausedReview = false; factCheckNote.hidden = true;
   heading.focus({ preventScroll: true });
   resultPanel.scrollIntoView({ block: 'start', behavior: 'auto' });
   announcement.textContent = `${result.food.name}. ${result.title}.`;
@@ -148,13 +184,13 @@ form.addEventListener('change', event => {
 });
 form.addEventListener('submit', event => { event.preventDefault(); syncFields(); const result = evaluate(readForm()); if (result.kind === 'invalid') { invalidate(); showErrors(result.errors); } else { clearErrors(); renderResult(result); persist(); } });
 document.querySelector('#clear-session').addEventListener('click', () => {
-  form.reset(); writeForm(DEFAULTS); clearErrors(); reviewed = false; resultPanel.className = 'result empty'; resultPanel.innerHTML = initialResult;
+  form.reset(); writeForm(DEFAULTS); clearErrors(); reviewed = false; reviewedResult = null; reviewInterrupted = false; pausedReview = false; factCheckNote.hidden = true; resultPanel.className = 'result empty'; resultPanel.innerHTML = initialResult;
   persist(true);
   announcement.textContent = 'Form cleared in this tab.'; document.querySelector('#food').focus();
 });
 
 try { storageSnapshot = localStorage.getItem(KEY); } catch { storageReadable = false; }
-try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); sessionStatus.textContent = 'Saved choices restored. Review this food again for fresh guidance.'; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
+try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); sessionStatus.textContent = 'Saved choices restored, not a current reading. Check every entry and update the duration if power is still out before you review this food again.'; factCheckNote.hidden = false; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
 syncFields();
 
 const offline = document.querySelector('#offline-status');
