@@ -26,7 +26,7 @@ class Node {
   scrollIntoView(options){this.scrollOptions=options;}
 }
 
-function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
+function harness({saved=null,storageFails=false,serviceWorker,reply=true,sharedStore,beforeGet,beforeSet,beforeRemove,lockRequest}={}) {
   const lifecycle = {document:{},window:{}};
   const timers = new Map(); const channels=[]; let timerId=0, closedPorts=0;
   class MessageChannel { constructor(){ channels.push(this); this.port1={close(){closedPorts++}}; this.port2={close(){closedPorts++}}; if(reply!==null)queueMicrotask(()=>this.port1.onmessage?.({data:{ready:reply}})); } }
@@ -49,10 +49,10 @@ function harness({saved=null,storageFails=false,serviceWorker,reply=true}={}) {
   form.querySelectorAll=()=>Object.values(controls).filter(n=>n.attrs?.['aria-invalid']);
   const result=document.nodes.get('result');result.innerHTML=html.match(/<section id="result"[^>]*>(.*?)<\/section>/s)[1];result.className='result empty';
   const attachOwner=node=>{node.owner=document;for(const child of node.children)attachOwner(child);};attachOwner(result);
-  const store=new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
-  const localStorage={getItem:key=>{if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{if(storageFails)throw Error('blocked');store.delete(key);}};
+  const store=sharedStore??new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
+  const localStorage={getItem:key=>{beforeGet?.(key,store);if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{beforeSet?.(key,v,store);if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{beforeRemove?.(key,store);if(storageFails)throw Error('blocked');store.delete(key);}};
   class FormData {constructor(){this.items=Object.entries(controls).filter(([,n])=>!n.disabled).map(([key,n])=>[key,n.value]);} [Symbol.iterator](){return this.items[Symbol.iterator]();}}
-  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:async(name,options,callback)=>callback()},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:(type,fn)=>{(lifecycle.window[type]??=[]).push(fn);}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
+  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:lockRequest??(async(name,options,callback)=>callback())},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:(type,fn)=>{(lifecycle.window[type]??=[]).push(fn);}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
   function dispatch(node,type,target=node){for(const fn of node.listeners[type]||[])fn({target,preventDefault(){}});attachOwner(result);}
   return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},event(target,type,data={}){for(const fn of lifecycle[target][type]||[])fn(data);attachOwner(result);},visibility(value){document.visibilityState=value;this.event('document','visibilitychange');},click(node){dispatch(node,'click');},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
 }
@@ -102,7 +102,7 @@ test('validation focuses linked error summary and clears invalid field state on 
 
 test('clear is repeatable, removes saved choices and result, resets hidden fields and focuses food',async()=>{
   const h=harness();fillKnown(h);h.change('evidence','warm');h.change('warmMinutes','121');h.submit();
-  for(let i=0;i<2;i++){h.clear();await flush();assert.equal(h.store.size,0);assert.equal(h.controls.food.value,'');assert.equal(h.controls.outageMinutes.value,'');assert.equal(h.controls.warmMinutes.value,'');assert.equal(h.controls.warmMinutes.disabled,true);assert.equal(h.document.focused.id,'food');assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/Session cleared/);}
+  for(let i=0;i<2;i++){h.clear();await flush();assert.equal(h.store.has('coldpause-session-v1'),false);assert.deepEqual([...h.store.keys()],['coldpause-session-v1.generation']);assert.equal(h.controls.food.value,'');assert.equal(h.controls.outageMinutes.value,'');assert.equal(h.controls.warmMinutes.value,'');assert.equal(h.controls.warmMinutes.disabled,true);assert.equal(h.document.focused.id,'food');assert.match(h.result.textContent,/A pause before a decision/);assert.match(h.text('session-status'),/Session cleared/);}
 });
 
 test('reload restores choices without restoring or generating a decision',()=>{
@@ -222,4 +222,88 @@ test('a restored snapshot retains its fact-check reminder through edits until an
   h.input('outageMinutes','181');assert.equal(h.document.nodes.get('fact-check-note').hidden,false);
   assert.match(h.result.textContent,/A pause before a decision/);h.submit();assert.equal(h.document.nodes.get('fact-check-note').hidden,true);
   assert.match(h.result.textContent,/not a live reading/);
+});
+
+// Shared backing store without automatic storage-event delivery models a suspended
+// peer. These are handler tests, not a native background-tab timing claim.
+test('a stale empty tab cannot resurrect choices after another tab saves then clears',async()=>{
+  const sharedStore=new Map(), a=harness({sharedStore}), b=harness({sharedStore});
+  a.change('food','milk');await flush();a.clear();await flush();
+  assert.equal(sharedStore.has('coldpause-session-v1'),false);
+  b.change('food','chicken');await flush();
+  assert.equal(sharedStore.has('coldpause-session-v1'),false);
+  assert.equal(b.controls.food.value,'chicken');
+  assert.match(b.text('session-status'),/Saved choices changed/);
+});
+test('same-JSON ABA is detected even before delayed storage events arrive',async()=>{
+  const sharedStore=new Map(), a=harness({sharedStore});a.change('food','milk');await flush();
+  const b=harness({sharedStore});
+  a.input('outageMinutes','3');await flush(); // inactive duration retains identical normalized JSON
+  b.change('food','chicken');await flush();
+  assert.equal(JSON.parse(sharedStore.get('coldpause-session-v1')).food,'milk');
+  assert.match(b.text('session-status'),/Saved choices changed/);
+});
+
+const DATA_KEY='coldpause-session-v1', GENERATION_KEY=`${DATA_KEY}.generation`;
+test('clear of an empty session invalidates a suspended peer and retains no food data',async()=>{
+ const sharedStore=new Map(),a=harness({sharedStore}),b=harness({sharedStore});
+ a.clear();await flush();b.change('food','milk');await flush();
+ assert.equal(sharedStore.has(DATA_KEY),false);assert.deepEqual([...sharedStore.keys()],[GENERATION_KEY]);
+ assert.match(b.text('session-status'),/Saved choices changed/);
+});
+test('legacy choices migrate on first edit and a fresh reload can save after clear',async()=>{
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})]]);
+ const a=harness({sharedStore});assert.equal(a.controls.food.value,'milk');a.clear();await flush();
+ const b=harness({sharedStore});b.change('food','chicken');await flush();
+ assert.equal(JSON.parse(sharedStore.get(DATA_KEY)).food,'chicken');
+ assert.match(b.text('session-status'),/Choices saved/);
+});
+test('generation write failure prevents food changes and removal',async()=>{
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})]]);
+ const before=sharedStore.get(DATA_KEY);const a=harness({sharedStore,beforeSet(key){if(key===GENERATION_KEY)throw Error('quota');}});
+ a.change('food','chicken');await flush();assert.equal(sharedStore.get(DATA_KEY),before);
+ a.clear();await flush();assert.equal(sharedStore.get(DATA_KEY),before);assert.equal(sharedStore.has(GENERATION_KEY),false);
+ assert.match(a.text('session-status'),/could not be removed/);
+});
+test('failed data removal advances marker but retains choices and blocks subsequent stale write',async()=>{
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})]]);
+ const before=sharedStore.get(DATA_KEY);const a=harness({sharedStore,beforeRemove(){throw Error('denied');}}),b=harness({sharedStore});
+ a.clear();await flush();assert.equal(sharedStore.get(DATA_KEY),before);assert.equal(sharedStore.get(GENERATION_KEY),'1');
+ assert.match(a.text('session-status'),/Coordination metadata may have changed/);
+ a.change('food','chicken');b.change('food','rice');await flush();
+ assert.equal(sharedStore.get(DATA_KEY),before);assert.match(a.text('session-status'),/Saved choices changed/);assert.match(b.text('session-status'),/Saved choices changed/);
+});
+test('failed data write preserves choices and requires reload after marker advance',async()=>{
+ const sharedStore=new Map();const a=harness({sharedStore,beforeSet(key){if(key===DATA_KEY)throw Error('quota');}});
+ a.change('food','chicken');await flush();assert.equal(sharedStore.has(DATA_KEY),false);assert.equal(sharedStore.get(GENERATION_KEY),'1');
+ a.change('food','milk');await flush();assert.match(a.text('session-status'),/Saved choices changed/);
+});
+test('malformed or exhausted coordination metadata fails closed without restoring old choices',async()=>{
+ for(const marker of ['-1','01','1e2','NaN','9007199254740991','999999999999999999999']){
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})],[GENERATION_KEY,marker]]);
+ const a=harness({sharedStore});assert.equal(a.controls.food.value,'');a.change('food','chicken');await flush();
+ assert.equal(sharedStore.get(GENERATION_KEY),marker);assert.equal(JSON.parse(sharedStore.get(DATA_KEY)).food,'milk');assert.match(a.text('session-status'),/saving is unavailable/);
+ }
+});
+test('generation change during initial snapshot refuses stale restoration and writes',async()=>{
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})],[GENERATION_KEY,'1']]);let reads=0;
+ const a=harness({sharedStore,beforeGet(key,store){if(key===GENERATION_KEY&&++reads===2)store.set(GENERATION_KEY,'2');}});
+ assert.equal(a.controls.food.value,'');a.change('food','chicken');await flush();assert.equal(JSON.parse(sharedStore.get(DATA_KEY)).food,'milk');
+});
+test('initial new-generation old-data interleaving conflicts after writer finishes',async()=>{
+ const sharedStore=new Map([[DATA_KEY,JSON.stringify({...bindings.DEFAULTS,food:'milk'})],[GENERATION_KEY,'2']]);
+ const a=harness({sharedStore});sharedStore.delete(DATA_KEY); // existing locked writer completes clear before our lock
+ a.change('food','chicken');await flush();assert.equal(sharedStore.has(DATA_KEY),false);assert.match(a.text('session-status'),/Saved choices changed/);
+});
+test('queued stale write checks generation after preceding reset releases its lock',async()=>{
+ const sharedStore=new Map();let queued;const a=harness({sharedStore});
+ const b=harness({sharedStore,lockRequest:async(name,options,callback)=>new Promise(resolve=>{queued=()=>resolve(callback());})});
+ b.change('food','milk');a.clear();await flush();queued();await flush();
+ assert.equal(sharedStore.has(DATA_KEY),false);assert.match(b.text('session-status'),/Saved choices changed/);
+});
+test('non-null A to B to A history cannot be overwritten by a stale peer',async()=>{
+ const sharedStore=new Map(),a=harness({sharedStore});a.change('food','milk');await flush();
+ const b=harness({sharedStore}), original=sharedStore.get(DATA_KEY);
+ a.change('food','chicken');await flush();a.change('food','milk');await flush();assert.equal(sharedStore.get(DATA_KEY),original);
+ b.change('food','rice');await flush();assert.equal(sharedStore.get(DATA_KEY),original);assert.match(b.text('session-status'),/Saved choices changed/);
 });
