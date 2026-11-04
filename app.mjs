@@ -1,6 +1,14 @@
 import { DEFAULTS, FOODS, SOURCES, evaluate, normalize } from './rules.mjs';
 
 const KEY = 'coldpause-session-v1';
+// Nonpersonal coordination metadata survives Clear; food choices do not.
+const GENERATION_KEY = `${KEY}.generation`;
+function nextGeneration(value) {
+  if (value !== null && !/^(0|[1-9]\d{0,15})$/.test(value)) throw Error('Invalid storage generation');
+  const current = value === null ? 0 : Number(value);
+  if (!Number.isSafeInteger(current) || current >= Number.MAX_SAFE_INTEGER) throw Error('Storage generation exhausted');
+  return String(current + 1);
+}
 const form = document.querySelector('#food-form');
 const resultPanel = document.querySelector('#result');
 const initialResult = resultPanel.innerHTML;
@@ -46,7 +54,7 @@ function showErrors(items) {
   });
   errors.append(list); errors.focus();
 }
-let storageSnapshot = null, storageReadable = true, storageConflict = false;
+let storageSnapshot = null, storageGeneration = null, storageReadable = true, storageConflict = false;
 let writeVersion = 0, pendingWrite = false, writeController;
 const reloadChoices = document.querySelector('#reload-choices');
 const conflictMessage = 'Saved choices changed in another tab. This tab keeps its choices and will not overwrite them. Reload to discard this tab’s choices and use the saved choices.';
@@ -63,7 +71,7 @@ async function persist(clear = false) {
   if (!storageReadable || !navigator.locks?.request) {
     sessionStatus.textContent = clear
       ? 'Form cleared in this tab only. Browser storage could not be safely changed; stored data could not be checked or removed.'
-      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved browser data is unchanged.';
+      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved food choices are unchanged.';
     return;
   }
   const snapshot = clear ? null : JSON.stringify(readForm());
@@ -75,9 +83,13 @@ async function persist(clear = false) {
     // Short synchronous critical section: compare and write under one shared lock.
     const outcome = await navigator.locks.request(`${KEY}.write`, { signal: controller.signal }, () => {
       if (controller.signal.aborted || version !== writeVersion) return 'cancelled';
-      if (localStorage.getItem(KEY) !== storageSnapshot) return 'conflict';
+      if (localStorage.getItem(GENERATION_KEY) !== storageGeneration || localStorage.getItem(KEY) !== storageSnapshot) return 'conflict';
+      const generation = nextGeneration(storageGeneration);
+      // Advance first. If the following food-data mutation fails, peers still
+      // reject stale writes; this tab must reload before trying again.
+      localStorage.setItem(GENERATION_KEY, generation);
       if (clear) localStorage.removeItem(KEY); else localStorage.setItem(KEY, snapshot);
-      storageSnapshot = snapshot;
+      storageGeneration = generation; storageSnapshot = snapshot;
       return 'saved';
     });
     if (version !== writeVersion) return;
@@ -87,18 +99,18 @@ async function persist(clear = false) {
       : 'Choices saved in this browser. Clear session removes your choices and result.';
   } catch {
     if (version === writeVersion) sessionStatus.textContent = clear
-      ? 'Form cleared in this tab only. Saved choices could not be removed; browser storage is unchanged.'
-      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved browser data is unchanged.';
+      ? 'Form cleared in this tab only. Saved choices could not be removed. Coordination metadata may have changed; reload before trying again.'
+      : 'Local saving is unavailable. Choices stay in this tab and will be lost on reload. Saved food choices are unchanged.';
   } finally {
     clearTimeout(timer);
     if (version === writeVersion) pendingWrite = false;
   }
 }
 window.addEventListener('storage', event => {
-  if (event.key !== KEY && event.key !== null) return;
+  if (event.key !== KEY && event.key !== GENERATION_KEY && event.key !== null) return;
   try {
     if (event.storageArea !== localStorage) return;
-    if (localStorage.getItem(KEY) === storageSnapshot) return;
+    if (localStorage.getItem(GENERATION_KEY) === storageGeneration && localStorage.getItem(KEY) === storageSnapshot) return;
   } catch { storageReadable = false; }
   ++writeVersion; writeController?.abort(); pendingWrite = false;
   showStorageConflict();
@@ -189,7 +201,12 @@ document.querySelector('#clear-session').addEventListener('click', () => {
   announcement.textContent = 'Form cleared in this tab.'; document.querySelector('#food').focus();
 });
 
-try { storageSnapshot = localStorage.getItem(KEY); } catch { storageReadable = false; }
+try {
+  storageGeneration = localStorage.getItem(GENERATION_KEY);
+  nextGeneration(storageGeneration); // Validate before restoring or saving.
+  storageSnapshot = localStorage.getItem(KEY);
+  if (localStorage.getItem(GENERATION_KEY) !== storageGeneration) throw Error('Storage changed during restore');
+} catch { storageReadable = false; }
 try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); sessionStatus.textContent = 'Saved choices restored, not a current reading. Check every entry and update the duration if power is still out before you review this food again.'; factCheckNote.hidden = false; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
 syncFields();
 
