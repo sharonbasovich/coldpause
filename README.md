@@ -14,7 +14,7 @@ A small refrigerator-outage prototype that keeps unknowns visible. Choose one of
 4. If you leave and return, check your entries before reviewing again. Update outage minutes if power is still out. A returned or restored snapshot is not a current reading.
 5. After one successful online visit, wait for “Offline copy ready.” A supported browser can then reload the application offline. The original official pages still need a connection.
 
-When browser storage and Web Locks are available, choices are saved locally. A successful Clear session removes saved choices and the displayed result while retaining the offline application. Newer changes or a reset in another updated tab are never silently overwritten: this tab retains its draft with an explicit reload/discard option. Without safe storage access, choices remain in this tab only and the status explains whether a clear reached saved data. Reload all older open tabs to use the same protection. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
+When browser storage and Web Locks are available, choices are saved locally. A successful Clear session removes saved choices and the displayed result while retaining the offline application and a nonpersonal coordination counter. That counter prevents a suspended, updated tab from recreating choices after a clear, even when storage events have not arrived. Newer changes or a reset in another updated tab are never silently overwritten: this tab retains its draft with an explicit reload/discard option. Without safe storage access, choices remain in this tab only and the status explains whether a clear reached saved data. Reload all older open tabs to use the same protection; already-open old code does not check the counter. Clearing browser site data removes the counter too and is outside this cross-tab protection. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
 
 ## Run locally
 
@@ -60,3 +60,19 @@ Native controls, associated labels/hints/errors, a skip link, live announcements
 Built for the SafeSpace hackathon starting October 24, 2026. OpenAI Codex assisted with source-to-rule review, implementation, test development, independent code review and documentation. Decisions are deterministic JavaScript; the application makes no AI/API calls. All demonstrated inputs and screenshots are synthetic. No food-safety-professional, physical food or thermometer validation is claimed.
 
 The repository makes the project source available for inspection. No open-source license grant has been selected for this prototype.
+
+## November 4 reset-integrity repair
+
+Storage comparisons now include a monotonic coordination counter as well as the
+exact saved JSON. Every save and clear advances the counter under the same Web
+Lock, including an empty clear. The counter contains no food or observation data.
+Marker-write failures prevent changes; failed food writes after marker advancement
+retain the saved food choices and force a conflict before another attempt. Legacy
+choices remain readable. Malformed or exhausted counters fail closed.
+
+The final Node suite has 64 tests, including delayed-event ABA reproductions,
+partial failures, legacy migration, startup interleaving and queued writes. The
+Chromium storage script adds two scenarios with explicitly suppressed storage
+events; this models delayed delivery rather than proving native tab suspension.
+Browser execution and release verification are recorded separately in the repair
+report. Food evaluation and official-guidance content are unchanged.
