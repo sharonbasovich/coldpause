@@ -21,6 +21,18 @@ const factCheckNote = document.querySelector('#fact-check-note');
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text) node.textContent = text; if (className) node.className = className; return node; };
 
 function readForm() { return normalize(Object.fromEntries(new FormData(form))); }
+function restoredChoices(raw) {
+  const data = normalize(raw);
+  // Match writeForm's select/number coercion without touching the live form.
+  // Deep clones retain food options; number controls sanitize malformed text.
+  // The other fields are already exact string enum values after normalize.
+  for (const key of ['food', 'outageMinutes', 'warmMinutes']) {
+    const control = form.elements.namedItem(key).cloneNode(true);
+    control.value = data[key];
+    data[key] = control.value;
+  }
+  return data;
+}
 function writeForm(data) {
   for (const [key, value] of Object.entries(data)) {
     const control = form.elements.namedItem(key);
@@ -56,14 +68,45 @@ function showErrors(items) {
 }
 let storageSnapshot = null, storageGeneration = null, storageReadable = true, storageConflict = false;
 let writeVersion = 0, pendingWrite = false, writeController;
+const defaultChoices = JSON.stringify(DEFAULTS);
+let lastRecoverableChoices = defaultChoices, discardNextExit = false, clearUnverified = false;
+function recoverableChoicesNow() {
+  // Read the same effective choices a fresh page would restore. Storage
+  // events can be delayed, so the last local save is not enough evidence.
+  const generation = localStorage.getItem(GENERATION_KEY);
+  nextGeneration(generation);
+  const saved = localStorage.getItem(KEY);
+  if (localStorage.getItem(GENERATION_KEY) !== generation) throw Error('Storage changed during exit check');
+  const recoverable = JSON.stringify(restoredChoices(saved === null ? DEFAULTS : JSON.parse(saved)));
+  // Remember peer changes too, so a later read failure cannot erase known
+  // recovery differences, especially when a blank Clear has not been saved.
+  lastRecoverableChoices = recoverable;
+  clearUnverified = false;
+  return recoverable;
+}
+function choicesNeedExitWarning() {
+  if (pendingWrite) return true;
+  const choices = JSON.stringify(readForm());
+  try { return choices !== recoverableChoicesNow(); }
+  catch {
+    // An untouched blank page needs no protection. A failed Clear is different:
+    // even an earlier verified empty store can since have received a peer save
+    // whose event has not arrived. Keep that uncertainty until a fresh check or
+    // successful write establishes what reload will restore.
+    return clearUnverified || choices !== defaultChoices || choices !== lastRecoverableChoices;
+  }
+}
 const reloadChoices = document.querySelector('#reload-choices');
 const conflictMessage = 'Saved choices changed in another tab. This tab keeps its choices and will not overwrite them. Reload to discard this tab’s choices and use the saved choices.';
 function showStorageConflict(clear = false) {
+  try { recoverableChoicesNow(); } catch { /* Keep the last verified recovery state. */ }
   storageConflict = true;
   sessionStatus.textContent = clear ? 'Form cleared in this tab only. Saved choices changed in another tab and are unchanged. Further edits stay in this tab. Reload to discard this tab’s choices and use the saved choices.' : conflictMessage;
   reloadChoices.hidden = false;
 }
 async function persist(clear = false) {
+  discardNextExit = false;
+  if (clear) clearUnverified = true;
   const version = ++writeVersion;
   writeController?.abort();
   pendingWrite = false;
@@ -90,6 +133,8 @@ async function persist(clear = false) {
       localStorage.setItem(GENERATION_KEY, generation);
       if (clear) localStorage.removeItem(KEY); else localStorage.setItem(KEY, snapshot);
       storageGeneration = generation; storageSnapshot = snapshot;
+      lastRecoverableChoices = clear ? defaultChoices : snapshot;
+      clearUnverified = false;
       return 'saved';
     });
     if (version !== writeVersion) return;
@@ -116,10 +161,16 @@ window.addEventListener('storage', event => {
   showStorageConflict();
 });
 window.addEventListener('beforeunload', event => {
-  if (!pendingWrite) return;
+  if (discardNextExit) { discardNextExit = false; return; }
+  if (!choicesNeedExitWarning()) return;
   event.preventDefault(); event.returnValue = '';
 });
-reloadChoices.addEventListener('click', () => location.reload());
+reloadChoices.addEventListener('click', () => {
+  // This control explicitly offers to discard this tab's choices. Consume the
+  // exemption once, so a later canceled navigation cannot disable protection.
+  discardNextExit = true;
+  try { location.reload(); } catch { discardNextExit = false; }
+});
 function invalidate() {
   if (reviewed || pausedReview) {
     resultPanel.className = 'result empty';
@@ -157,6 +208,7 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => { if (reviewed) reviewInterrupted = true; });
 window.addEventListener('pageshow', event => {
+  discardNextExit = false;
   if (event.persisted && reviewed) reviewInterrupted = true;
   if (document.visibilityState !== 'hidden') pauseInterruptedReview();
 });
@@ -207,7 +259,7 @@ try {
   storageSnapshot = localStorage.getItem(KEY);
   if (localStorage.getItem(GENERATION_KEY) !== storageGeneration) throw Error('Storage changed during restore');
 } catch { storageReadable = false; }
-try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); sessionStatus.textContent = 'Saved choices restored, not a current reading. Check every entry and update the duration if power is still out before you review this food again.'; factCheckNote.hidden = false; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
+try { if (!storageReadable) throw Error('Storage unavailable'); if (storageSnapshot) { writeForm(normalize(JSON.parse(storageSnapshot))); lastRecoverableChoices = JSON.stringify(readForm()); sessionStatus.textContent = 'Saved choices restored, not a current reading. Check every entry and update the duration if power is still out before you review this food again.'; factCheckNote.hidden = false; } } catch { sessionStatus.textContent = 'Saved choices could not be restored. Start a new check.'; }
 syncFields();
 
 const offline = document.querySelector('#offline-status');

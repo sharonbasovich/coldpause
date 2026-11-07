@@ -10,6 +10,11 @@ const html = await readFile(new URL('../index.html',import.meta.url),'utf8');
 const code = (await readFile(new URL('../app.mjs',import.meta.url),'utf8')).replace(/^import .*?;\s*/, 'const { DEFAULTS, FOODS, SOURCES, evaluate, normalize } = bindings;\n');
 class Node {
   constructor(tag='div',text=''){this.tagName=tag;this._text=text;this.children=[];this.attrs={};this.listeners={};this.hidden=false;this.disabled=false;this.value='';this.className='';this.classList={toggle:()=>{}};}
+  // Test double for the number-state value sanitizer, not food validation.
+  // https://html.spec.whatwg.org/multipage/input.html#number-state-(type=number)
+  set value(v){const s=String(v);this._value=this.tagName==='input'&&this.type==='number'&&(!/^-?(?:\d+|\d*\.\d+)(?:[eE][+-]?\d+)?$/.test(s)||!Number.isFinite(Number(s)))?'':s;}
+  get value(){return this._value;}
+  cloneNode(){const n=new Node(this.tagName);n.type=this.type;n.disabled=this.disabled;n.attrs={...this.attrs};n.value=this.value;return n;}
   set textContent(v){this._text=String(v);this.children=[];}
   get textContent(){return this._text+this.children.map(n=>n.textContent).join(' ');}
   append(...nodes){this.children.push(...nodes);}
@@ -26,7 +31,7 @@ class Node {
   scrollIntoView(options){this.scrollOptions=options;}
 }
 
-function harness({saved=null,storageFails=false,serviceWorker,reply=true,sharedStore,beforeGet,beforeSet,beforeRemove,lockRequest}={}) {
+function harness({saved=null,storageFails=false,serviceWorker,reply=true,sharedStore,beforeGet,beforeSet,beforeRemove,lockRequest,noLocks=false,reload}={}) {
   const lifecycle = {document:{},window:{}};
   const timers = new Map(); const channels=[]; let timerId=0, closedPorts=0;
   class MessageChannel { constructor(){ channels.push(this); this.port1={close(){closedPorts++}}; this.port2={close(){closedPorts++}}; if(reply!==null)queueMicrotask(()=>this.port1.onmessage?.({data:{ready:reply}})); } }
@@ -43,7 +48,7 @@ function harness({saved=null,storageFails=false,serviceWorker,reply=true,sharedS
   for(const match of html.matchAll(/<input([^>]+)>/g)) {
     const type=match[1].match(/type="([^"]+)"/)[1],name=match[1].match(/name="([^"]+)"/)[1];
     if(type==='radio'){if(!controls[name])controls[name]={value:'',defaultValue:'',name};if(match[1].includes('checked'))controls[name].value=controls[name].defaultValue=match[1].match(/value="([^"]*)"/)[1];}
-    else {const id=match[1].match(/id="([^"]+)"/)[1],n=document.nodes.get(id);n.name=name;n.tagName='input';n.value='';n.defaultValue='';controls[name]=n;}
+    else {const id=match[1].match(/id="([^"]+)"/)[1],n=document.nodes.get(id);n.name=name;n.tagName='input';n.type=type;n.value='';n.defaultValue='';controls[name]=n;}
   }
   form.elements={...controls,namedItem:key=>controls[key]};form.reset=()=>Object.values(controls).forEach(n=>n.value=n.defaultValue);
   form.querySelectorAll=()=>Object.values(controls).filter(n=>n.attrs?.['aria-invalid']);
@@ -52,7 +57,7 @@ function harness({saved=null,storageFails=false,serviceWorker,reply=true,sharedS
   const store=sharedStore??new Map(saved===null?[]:[['coldpause-session-v1',saved]]);
   const localStorage={getItem:key=>{beforeGet?.(key,store);if(storageFails)throw Error('blocked');return store.get(key)??null;},setItem:(key,v)=>{beforeSet?.(key,v,store);if(storageFails)throw Error('blocked');store.set(key,v);},removeItem:key=>{beforeRemove?.(key,store);if(storageFails)throw Error('blocked');store.delete(key);}};
   class FormData {constructor(){this.items=Object.entries(controls).filter(([,n])=>!n.disabled).map(([key,n])=>[key,n.value]);} [Symbol.iterator](){return this.items[Symbol.iterator]();}}
-  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{locks:{request:lockRequest??(async(name,options,callback)=>callback())},onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:'},window:{addEventListener:(type,fn)=>{(lifecycle.window[type]??=[]).push(fn);}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
+  vm.runInNewContext(code,{document,localStorage,FormData,bindings,AbortController,navigator:{...(noLocks?{}:{locks:{request:lockRequest??(async(name,options,callback)=>callback())}}),onLine:true,...(serviceWorker?{serviceWorker}:{})},location:{protocol:'http:',reload:reload??(()=>{})},window:{addEventListener:(type,fn)=>{(lifecycle.window[type]??=[]).push(fn);}},console,MessageChannel,setTimeout:(fn,ms)=>{const id=++timerId;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
   function dispatch(node,type,target=node){for(const fn of node.listeners[type]||[])fn({target,preventDefault(){}});attachOwner(result);}
   return {document,controls,store,result,timers,channels,get closedPorts(){return closedPorts;},event(target,type,data={}){for(const fn of lifecycle[target][type]||[])fn(data);attachOwner(result);},visibility(value){document.visibilityState=value;this.event('document','visibilitychange');},click(node){dispatch(node,'click');},expire(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn();}},change(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);dispatch(form,'change',controls[name]);},input(name,value){controls[name].value=value;dispatch(form,'input',controls[name]);},submit(){dispatch(form,'submit');},clear(){dispatch(document.nodes.get('clear-session'),'click');},text(id){return document.nodes.get(id).textContent;}};
 }
@@ -306,4 +311,335 @@ test('non-null A to B to A history cannot be overwritten by a stale peer',async(
  const b=harness({sharedStore}), original=sharedStore.get(DATA_KEY);
  a.change('food','chicken');await flush();a.change('food','milk');await flush();assert.equal(sharedStore.get(DATA_KEY),original);
  b.change('food','rice');await flush();assert.equal(sharedStore.get(DATA_KEY),original);assert.match(b.text('session-status'),/Saved choices changed/);
+});
+
+function exitWarning(h) {
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  h.event('window', 'beforeunload', event);
+  return event;
+}
+
+test('failed or unavailable saving retains the exit warning after writes settle', async () => {
+  for (const options of [
+    { storageFails: true },
+    { beforeSet() { throw Error('quota'); } },
+    { beforeSet(key) { if (key === DATA_KEY) throw Error('quota'); } },
+    { lockRequest: async () => { throw Error('lock unavailable'); } }
+  ]) {
+    const h = harness(options);
+    assert.equal(exitWarning(h).prevented, false);
+    h.change('food', 'milk'); await flush();
+    assert.equal(exitWarning(h).prevented, true);
+    assert.equal(exitWarning(h).returnValue, '');
+    assert.equal(h.controls.food.value, 'milk');
+  }
+});
+
+test('settled cross-tab conflict warns without restoring cleared food data', async () => {
+  const sharedStore = new Map(), a = harness({ sharedStore }), b = harness({ sharedStore });
+  a.change('food', 'milk'); await flush(); a.clear(); await flush();
+  b.change('food', 'chicken'); await flush();
+  assert.equal(sharedStore.has(DATA_KEY), false);
+  assert.equal(exitWarning(b).prevented, true);
+  assert.equal(sharedStore.has(DATA_KEY), false);
+});
+
+test('missing Web Locks protects session-only choices and exact blank reversion clears it', async () => {
+  const h = harness({ noLocks: true });
+  h.change('food', 'milk'); await flush();
+  assert.equal(exitWarning(h).prevented, true);
+  assert.equal(h.store.has(DATA_KEY), false);
+  h.change('food', ''); await flush();
+  assert.equal(exitWarning(h).prevented, false);
+});
+
+test('successful saves, restored choices and successful clears do not warn after settling', async () => {
+  const h = harness(); fillKnown(h); await flush();
+  assert.equal(exitWarning(h).prevented, false);
+  const restored = harness({ saved: h.store.get(DATA_KEY) });
+  assert.equal(exitWarning(restored).prevented, false);
+  h.clear(); await flush(); assert.equal(exitWarning(h).prevented, false);
+});
+
+test('pending write stays protected until its actual saved outcome', async () => {
+  let release;
+  const h = harness({ lockRequest: async (name, options, callback) => new Promise(resolve => { release = () => resolve(callback()); }) });
+  h.input('food', 'milk');
+  assert.equal(exitWarning(h).prevented, true);
+  release(); await flush();
+  assert.equal(exitWarning(h).prevented, false);
+});
+
+test('failed clear remains protected because reload would restore the old choices', async () => {
+  const saved = JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' });
+  const h = harness({ saved, beforeRemove() { throw Error('denied'); } });
+  h.clear(); await flush();
+  assert.equal(h.controls.food.value, '');
+  assert.equal(h.store.get(DATA_KEY), saved);
+  assert.equal(exitWarning(h).prevented, true);
+  h.change('food', 'milk'); await flush();
+  assert.match(h.text('session-status'), /Saved choices changed/);
+  assert.equal(exitWarning(h).prevented, false);
+});
+
+test('delayed peer clear protects formerly saved choices even without a local edit', async () => {
+  const sharedStore = new Map(), a = harness({ sharedStore });
+  a.change('food', 'milk'); await flush();
+  const b = harness({ sharedStore });
+  assert.equal(exitWarning(b).prevented, false);
+  a.clear(); await flush();
+  assert.equal(exitWarning(b).prevented, true);
+  assert.equal(b.controls.food.value, 'milk');
+  assert.equal(sharedStore.has(DATA_KEY), false);
+});
+
+test('same normalized recoverable choices need no warning despite generation conflict', async () => {
+  const saved = JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' });
+  const sharedStore = new Map([[DATA_KEY, saved]]), h = harness({ sharedStore });
+  sharedStore.set(GENERATION_KEY, '8');
+  sharedStore.set(DATA_KEY, JSON.stringify({ food: 'milk', extra: 'ignored', ...bindings.DEFAULTS, food: 'milk' }));
+  h.input('food', 'milk'); await flush();
+  assert.match(h.text('session-status'), /Saved choices changed/);
+  assert.equal(exitWarning(h).prevented, false);
+});
+
+test('unreadable storage protects nonblank restored choices and failed blank clear', async () => {
+  let unreadable = false;
+  const saved = JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' });
+  const h = harness({ saved, beforeGet() { if (unreadable) throw Error('denied'); } });
+  assert.equal(exitWarning(h).prevented, false);
+  unreadable = true;
+  assert.equal(exitWarning(h).prevented, true);
+  h.clear(); await flush();
+  assert.equal(exitWarning(h).prevented, true);
+});
+
+test('corrupt initial storage does not warn for an untouched blank form', async () => {
+  for (const saved of ['{bad', 'null', '42']) {
+    const h = harness({ saved });
+    assert.equal(exitWarning(h).prevented, false);
+    h.change('food', 'chicken'); await flush();
+    // Corrupt legacy data can be replaced safely when its exact snapshot is still current.
+    assert.equal(exitWarning(h).prevented, false);
+  }
+});
+
+test('interleaved exit read falls back conservatively without writing anything', () => {
+  let interleave = false, reads = 0;
+  const sharedStore = new Map([[DATA_KEY, JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' })]]);
+  const h = harness({ sharedStore, beforeGet(key, store) {
+    if (interleave && key === GENERATION_KEY && ++reads === 2) store.set(GENERATION_KEY, '1');
+  } });
+  interleave = true;
+  const before = sharedStore.get(DATA_KEY);
+  assert.equal(exitWarning(h).prevented, true);
+  assert.equal(sharedStore.get(DATA_KEY), before);
+});
+
+test('explicit discard exempts only its next navigation and further edits remain protected', async () => {
+  const h = harness({ noLocks: true });
+  h.change('food', 'milk'); await flush();
+  h.click(h.document.nodes.get('reload-choices'));
+  assert.equal(exitWarning(h).prevented, false);
+  assert.equal(exitWarning(h).prevented, true);
+  h.click(h.document.nodes.get('reload-choices'));
+  h.input('food', 'chicken'); await flush();
+  assert.equal(exitWarning(h).prevented, true);
+  h.click(h.document.nodes.get('reload-choices'));
+  h.event('window', 'pageshow', { persisted: true });
+  assert.equal(exitWarning(h).prevented, true);
+});
+
+test('a failed explicit reload does not disable later exit protection', async () => {
+  const h = harness({ noLocks: true, reload() { throw Error('navigation failed'); } });
+  h.change('food', 'milk'); await flush();
+  h.click(h.document.nodes.get('reload-choices'));
+  assert.equal(exitWarning(h).prevented, true);
+});
+
+
+test('known peer choices remain protected if later storage reads and Clear fail', async () => {
+  for (const observe of ['exit', 'conflict']) {
+    let unreadable = false;
+    const sharedStore = new Map(), h = harness({ sharedStore, beforeGet() {
+      if (unreadable) throw Error('read denied');
+    } });
+    sharedStore.set(DATA_KEY, JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' }));
+    sharedStore.set(GENERATION_KEY, '1');
+    if (observe === 'exit') assert.equal(exitWarning(h).prevented, true);
+    else { h.clear(); await flush(); assert.match(h.text('session-status'), /Saved choices changed/); }
+    unreadable = true;
+    h.clear(); await flush();
+    assert.equal(h.controls.food.value, '');
+    assert.equal(JSON.parse(sharedStore.get(DATA_KEY)).food, 'milk');
+    assert.equal(exitWarning(h).prevented, true, observe);
+  }
+});
+
+test('failed Clear protects an unseen peer save even when the tab has only ever been blank', async () => {
+  let blocked = false;
+  const sharedStore = new Map(), h = harness({ sharedStore, beforeGet() { if (blocked) throw Error('denied'); } });
+  assert.equal(exitWarning(h).prevented, false);
+  sharedStore.set(DATA_KEY, JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' }));
+  sharedStore.set(GENERATION_KEY, '1'); // Deliberately do not deliver a storage event.
+  const before = [...sharedStore];
+  blocked = true;
+  for (let i = 0; i < 2; i++) {
+    h.clear(); await flush();
+    assert.match(h.text('session-status'), /could not be removed/);
+    assert.equal(h.controls.food.value, '');
+    assert.equal(exitWarning(h).prevented, true);
+  }
+  h.input('food', ''); await flush(); // A failed no-op edit cannot verify the Clear.
+  assert.equal(exitWarning(h).prevented, true);
+  assert.equal(harness({ sharedStore }).controls.food.value, 'milk');
+  assert.deepEqual([...sharedStore], before);
+});
+
+test('prior verified empty recovery cannot resolve a later unreadable Clear; fresh reads can', async () => {
+  for (const peerSaved of [false, true]) {
+    let blocked = false;
+    const sharedStore = new Map(), h = harness({ sharedStore, beforeGet() { if (blocked) throw Error('denied'); } });
+    assert.equal(exitWarning(h).prevented, false);
+    if (peerSaved) { sharedStore.set(DATA_KEY, JSON.stringify({ ...bindings.DEFAULTS, food: 'milk' })); sharedStore.set(GENERATION_KEY, '1'); }
+    blocked = true;
+    h.clear(); await flush();
+    assert.equal(exitWarning(h).prevented, true, 'same uncertainty whether or not an unseen peer saved');
+    blocked = false;
+    assert.equal(exitWarning(h).prevented, peerSaved);
+    blocked = true;
+    assert.equal(exitWarning(h).prevented, peerSaved, 'retain the newly verified recovery state');
+  }
+});
+
+test('unavailable storage leaves untouched blank pages quiet but cannot verify an attempted Clear', async () => {
+  for (const noLocks of [false, true]) {
+    const h = harness({ storageFails: true, noLocks });
+    assert.equal(exitWarning(h).prevented, false);
+    h.clear(); await flush();
+    assert.equal(exitWarning(h).prevented, true);
+    assert.match(h.text('session-status'), /stored data could not be checked or removed/);
+  }
+});
+
+test('failed no-op Clear stays quiet once a fresh readable snapshot verifies blank recovery', async () => {
+  for (const options of [
+    { noLocks: true },
+    { beforeSet() { throw Error('denied'); } },
+    { beforeRemove() { throw Error('denied'); } },
+    { lockRequest: async () => { throw Error('unavailable'); } }
+  ]) {
+    let blocked = false;
+    const h = harness({ ...options, beforeGet() { if (blocked) throw Error('denied'); } });
+    h.clear(); await flush();
+    assert.equal(h.store.has(DATA_KEY), false);
+    assert.equal(exitWarning(h).prevented, false);
+    blocked = true;
+    assert.equal(exitWarning(h).prevented, false);
+  }
+});
+
+test('successful save or Clear resolves earlier unverified Clear without an exit read', async () => {
+  for (const operation of ['save', 'clear']) {
+    let blocked = false, rejectLock = true;
+    const h = harness({ beforeGet() { if (blocked) throw Error('denied'); }, lockRequest: async (name, options, callback) => {
+      if (rejectLock) throw Error('unavailable'); return callback();
+    } });
+    h.clear(); await flush(); blocked = true;
+    assert.equal(exitWarning(h).prevented, true);
+    blocked = false; rejectLock = false;
+    if (operation === 'save') h.input('food', ''); else h.clear();
+    await flush(); blocked = true;
+    assert.equal(exitWarning(h).prevented, false, operation);
+  }
+});
+
+test('verified recovery equality does not relax raw cross-tab write guards after failed Clear', async () => {
+  let blocked = false;
+  const sharedStore = new Map(), h = harness({ sharedStore, beforeGet() { if (blocked) throw Error('denied'); } });
+  sharedStore.set(GENERATION_KEY, '2');
+  blocked = true; h.clear(); await flush(); assert.equal(exitWarning(h).prevented, true);
+  blocked = false; assert.equal(exitWarning(h).prevented, false);
+  h.change('food', 'milk'); await flush();
+  assert.match(h.text('session-status'), /Saved choices changed/);
+  assert.equal(sharedStore.has(DATA_KEY), false);
+  assert.equal(sharedStore.get(GENERATION_KEY), '2');
+});
+
+test('unverified Clear resets a stale discard exemption and intentional discard remains single-use', async () => {
+  const h = harness({ storageFails: true });
+  h.click(h.document.nodes.get('reload-choices'));
+  h.clear(); await flush(); assert.equal(exitWarning(h).prevented, true);
+  h.click(h.document.nodes.get('reload-choices'));
+  assert.equal(exitWarning(h).prevented, false);
+  assert.equal(exitWarning(h).prevented, true);
+});
+
+test('malformed stored number text compares equal to the empty control a reload restores', () => {
+  for (const field of ['outageMinutes', 'warmMinutes']) {
+    for (const value of ['not-a-number', ' 90 ', '\t90', '90\n', 'Infinity', '-Infinity', 'NaN', '0x10', '+1', '1.', '1e', '1e309']) {
+      const saved = JSON.stringify({ ...bindings.DEFAULTS, food: 'milk', durationKnown: 'known', evidence: 'warm', [field]: value });
+      const h = harness({ saved });
+      const before = JSON.stringify(Object.fromEntries(Object.entries(h.controls).map(([key, node]) => [key, node.value])));
+      assert.equal(h.controls[field].value, '', `${field}: ${JSON.stringify(value)}`);
+      assert.equal(exitWarning(h).prevented, false, `${field}: ${JSON.stringify(value)}`);
+      assert.equal(h.store.get(DATA_KEY), saved);
+      assert.equal(JSON.stringify(Object.fromEntries(Object.entries(h.controls).map(([key, node]) => [key, node.value]))), before);
+      assert.match(h.result.textContent, /A pause before a decision/);
+    }
+  }
+});
+
+test('valid number syntax retains exact text without changing food-rule validation', () => {
+  for (const field of ['outageMinutes', 'warmMinutes']) {
+    for (const value of ['0', '-0', '00', '01', '90', '-1', '1.0', '.5', '-.5', '1e2', '1E+2', '1e-2', '10081', '1e308', '1e-999']) {
+      const raw = { ...bindings.DEFAULTS, food: 'milk', durationKnown: 'known', outageMinutes: '90', evidence: 'warm', warmMinutes: '30', [field]: value };
+      const h = harness({ saved: JSON.stringify(raw) });
+      assert.equal(h.controls[field].value, value, `${field}: ${value}`);
+      assert.equal(exitWarning(h).prevented, false, `${field}: ${value}`);
+      const current = bindings.normalize(Object.fromEntries(Object.entries(h.controls).map(([key, node]) => [key, node.value])));
+      assert.deepEqual(bindings.validate(current), bindings.validate(raw));
+    }
+  }
+});
+
+test('disabled numeric fields are excluded from recovery comparison despite stored or live text', () => {
+  for (const value of ['90', '1e2', 'bad', 'Infinity']) {
+    const saved = JSON.stringify({ ...bindings.DEFAULTS, food: 'milk', outageMinutes: value, warmMinutes: value });
+    const h = harness({ saved });
+    for (const field of ['outageMinutes', 'warmMinutes']) { assert.equal(h.controls[field].disabled, true); h.controls[field].value = '123'; }
+    assert.equal(exitWarning(h).prevented, false);
+    assert.equal(h.store.get(DATA_KEY), saved);
+    for (const field of ['outageMinutes', 'warmMinutes']) assert.equal(h.controls[field].value, '123', 'exit check must not mutate live controls');
+  }
+});
+
+test('new malformed peer minutes preserve empty controls while valid peer text requests protection', () => {
+  for (const field of ['outageMinutes', 'warmMinutes']) {
+    const raw = { ...bindings.DEFAULTS, food: 'milk', durationKnown: 'known', evidence: 'warm' };
+    const sharedStore = new Map([[DATA_KEY, JSON.stringify(raw)]]), h = harness({ sharedStore });
+    for (const value of ['bad', ' 90 ', 'Infinity']) {
+      sharedStore.set(DATA_KEY, JSON.stringify({ ...raw, [field]: value })); sharedStore.set(GENERATION_KEY, '1');
+      const before = [...sharedStore]; assert.equal(exitWarning(h).prevented, false); assert.deepEqual([...sharedStore], before);
+    }
+    sharedStore.set(DATA_KEY, JSON.stringify({ ...raw, [field]: '1e2' }));
+    assert.equal(exitWarning(h).prevented, true);
+    assert.equal(h.controls[field].value, '');
+  }
+});
+
+
+test('stored array food identifiers compare with select coercion without permitting stale writes', async () => {
+  for (const food of [['milk'], [['chicken']]]) {
+    const raw = JSON.stringify({ ...bindings.DEFAULTS, food });
+    const store = new Map([[DATA_KEY, raw]]), h = harness({sharedStore: store});
+    assert.equal(h.controls.food.value, String(food));
+    assert.equal(exitWarning(h).prevented, false);
+    assert.equal(store.get(DATA_KEY), raw);
+    store.set(DATA_KEY, JSON.stringify({ ...bindings.DEFAULTS, food: String(food) }));
+    assert.equal(exitWarning(h).prevented, false);
+    const before = [...store]; h.change('food', 'milk'); await flush();
+    assert.match(h.text('session-status'), /Saved choices changed/);
+    assert.deepEqual([...store], before);
+  }
 });
