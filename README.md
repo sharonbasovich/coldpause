@@ -16,6 +16,23 @@ A small refrigerator-outage prototype that keeps unknowns visible. Choose one of
 
 When browser storage and Web Locks are available, choices are saved locally. A successful Clear session removes saved choices and the displayed result while retaining the offline application and a nonpersonal coordination counter. That counter prevents a suspended, updated tab from recreating choices after a clear, even when storage events have not arrived. Newer changes or a reset in another updated tab are never silently overwritten: this tab retains its draft with an explicit reload/discard option. Without safe storage access, choices remain in this tab only and the status explains whether a clear reached saved data. Reload all older open tabs to use the same protection; already-open old code does not check the counter. Clearing browser site data removes the counter too and is outside this cross-tab protection. The application has no accounts, uploads, analytics or external alerts. GitHub Pages supplies ordinary hosting infrastructure; this is not a claim that the host receives no request metadata.
 
+## Protecting choices before leaving
+
+A pending save or choices that a reload would not recover request the browser's
+standard leave-page warning. This includes failed saving, unavailable Web Locks,
+failed clears, and another tab replacing or clearing the saved choices. When
+choices match freshly verified recovery, no warning is requested. An unverified
+Clear remains protected even if this tab has only ever been blank, because an
+unobserved peer may have saved choices. Recovery comparisons match actual control coercion, including saved food
+identifiers and malformed numeric text that restores as an empty field. The explicit
+“Discard this tab’s choices and reload saved choices” control intentionally
+continues without that warning.
+
+This is best-effort protection, not a backup or a guarantee: browsers can suppress
+prompts, particularly without prior interaction or on mobile. If storage is
+unavailable, leaving can still lose the choices. No food data is saved during the
+exit check, and a conflicted tab never restores data cleared by another tab.
+
 ## Run locally
 
 Use Node.js 24 or later. No packages need to be installed.
@@ -76,3 +93,19 @@ Chromium storage script adds two scenarios with explicitly suppressed storage
 events; this models delayed delivery rather than proving native tab suspension.
 Browser execution and release verification are recorded separately in the repair
 report. Food evaluation and official-guidance content are unchanged.
+
+## November 6 unreleased exit-protection candidate
+
+The expanded non-network handler tests cover settled save failures, absent locks,
+failed clears, delayed cross-tab changes, normalized reversion and intentional
+discard. They are not evidence of native dialog behavior. Native browser checks,
+offline update behavior and release verification remain pending for this candidate.
+Food evaluation, official-source rules, styling and the submitted entry are unchanged.
+
+## November 7 unreleased exit-protection repair
+
+The non-network suite now has 90 tests, including failed Clear with an unseen
+peer save, fresh recovery checks, repeated Clear, one-use discard, and malformed
+or valid stored numeric text. The additional browser-script cases cover the same
+Clear failure and number-control restoration, but are not yet executed. Native
+Cancel/Leave, offline update and release checks remain separate pending gates.
