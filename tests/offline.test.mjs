@@ -16,7 +16,7 @@ async function workerHarness({failInstall=false}={}) {
 test('offline cache install contains every runtime asset and activation preserves unrelated caches', async () => {
   const h=await workerHarness(); await h.lifecycle('install'); await h.lifecycle('activate');
   for(const path of ['/','/index.html','/styles.css','/app.mjs','/rules.mjs','/icon.svg']) assert.ok(h.data.has(`http://local${path}`),path);
-  assert.equal(h.data.size,6); assert.equal(h.skipped,1); assert.equal(h.claimed,1); assert.deepEqual(h.deleted,['coldpause-old']);
+  assert.equal(h.data.size,6); assert.equal(h.skipped,1); assert.equal(h.claimed,1); assert.deepEqual(h.deleted,['coldpause-old','coldpause-v1-20261104']);
 });
 
 test('offline reload and assets resolve entirely from cache in service-worker simulation', async () => {
