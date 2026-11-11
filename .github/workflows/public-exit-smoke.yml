@@ -1,0 +1,27 @@
+name: Public deployed exit smoke
+on:
+  push:
+    branches: [test/public-exit-smoke-20261111-1207]
+permissions:
+  contents: read
+jobs:
+  public-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm install --no-save --package-lock=false playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/public-exit-smoke.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: public-exit-smoke-evidence
+          path: evidence/public-exit-smoke/
+          if-no-files-found: warn

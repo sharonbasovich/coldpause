@@ -1,0 +1,31 @@
+{
+  "baseURL": "https://sharonbasovich.github.io/coldpause/",
+  "commit": "0c392ee7b0ca5dc45c9469d0f2469718420af3dd",
+  "tree": "7d19d57ff2078d3c9d49ae97cf3d5fa431b246dd",
+  "files": {
+    "app.mjs": {
+      "size": 19005,
+      "sha256": "39676b4ce57e573840ad94185d79ce97749543571f2c446465219ef8800dc59f"
+    },
+    "icon.svg": {
+      "size": 298,
+      "sha256": "e7827064c4bd0f07b87a6846f18b8526c73de6521562562444102400069c235b"
+    },
+    "index.html": {
+      "size": 11748,
+      "sha256": "63ba80d6bd34dd941d160a2dd4798b7553f476500ad81b71fd810d9ee828e7c7"
+    },
+    "rules.mjs": {
+      "size": 12969,
+      "sha256": "1b92dfa0599e65c8ffe4b486c701dd11be068184869440e9164d08bdca77883a"
+    },
+    "styles.css": {
+      "size": 9848,
+      "sha256": "90376bad5e534cb32471ad34546efe8305d652f3204e8af6f4564209fecf6fe5"
+    },
+    "sw.js": {
+      "size": 1150,
+      "sha256": "94022043e51b18f955171ca275569119ccbcd9f72df24009167d822d43e20bc9"
+    }
+  }
+}
