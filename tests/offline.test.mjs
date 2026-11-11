@@ -7,7 +7,7 @@ async function workerHarness({failInstall=false}={}) {
   const listeners={}, data=new Map(), deleted=[];
   const cache = { async addAll(files) { if(failInstall)throw Error('storage unavailable'); for(const file of files)data.set(new URL(file,'http://local/').href,{file}); }, async match(request) { const url = new URL(typeof request==='string'?request:request.url,'http://local/'); url.search=''; return data.get(url.href); } };
   let network=0, claimed=0, skipped=0;
-  const context = { URL, Promise, caches:{open:async()=>cache,keys:async()=>['unrelated-cache','coldpause-old','coldpause-v1-20261104'],delete:async key=>{deleted.push(key);return true;}},fetch:async()=>{network++;throw Error('offline');},self:{location:{origin:'http://local'},addEventListener:(event,fn)=>listeners[event]=fn,skipWaiting:async()=>{skipped++},clients:{claim:async()=>{claimed++}}} };
+  const context = { URL, Promise, caches:{open:async()=>cache,keys:async()=>['unrelated-cache','coldpause-old','coldpause-v1-20261104','coldpause-v1-20261107','coldpause-v1-20261111-icons','coldpause-v1-20261111-exit-refresh-1147'],delete:async key=>{deleted.push(key);return true;}},fetch:async()=>{network++;throw Error('offline');},self:{location:{origin:'http://local'},addEventListener:(event,fn)=>listeners[event]=fn,skipWaiting:async()=>{skipped++},clients:{claim:async()=>{claimed++}}} };
   vm.runInNewContext(await readFile(new URL('../sw.js',import.meta.url),'utf8'),context);
   async function lifecycle(type) { let done; listeners[type]({waitUntil:promise=>done=promise}); await done; }
   return {listeners,data,deleted,lifecycle,get network(){return network},get claimed(){return claimed},get skipped(){return skipped}};
@@ -16,7 +16,7 @@ async function workerHarness({failInstall=false}={}) {
 test('offline cache install contains every runtime asset and activation preserves unrelated caches', async () => {
   const h=await workerHarness(); await h.lifecycle('install'); await h.lifecycle('activate');
   for(const path of ['/','/index.html','/styles.css','/app.mjs','/rules.mjs','/icon.svg']) assert.ok(h.data.has(`http://local${path}`),path);
-  assert.equal(h.data.size,6); assert.equal(h.skipped,1); assert.equal(h.claimed,1); assert.deepEqual(h.deleted,['coldpause-old','coldpause-v1-20261104']);
+  assert.equal(h.data.size,6); assert.equal(h.skipped,1); assert.equal(h.claimed,1); assert.deepEqual(h.deleted,['coldpause-old','coldpause-v1-20261104','coldpause-v1-20261107','coldpause-v1-20261111-icons']);
 });
 
 test('offline reload and assets resolve entirely from cache in service-worker simulation', async () => {

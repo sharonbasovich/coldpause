@@ -21,9 +21,16 @@ jobs:
       - run: npm install --no-save --package-lock=false playwright@1.56.1
       - run: npx playwright install --with-deps chromium
       - run: node scripts/offline-browser-check.mjs
+      - name: Check out pinned upgrade baseline (read-only fixture)
+        uses: actions/checkout@v7
+        with:
+          ref: bcfdf382de596fc3d00ae2ffb210203a69a76317
+          path: .upgrade-baseline
+          persist-credentials: false
+      - run: node scripts/upgrade-browser-check.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: offline-lifecycle-evidence
-          path: evidence/offline-lifecycle/
+          path: evidence/
           if-no-files-found: warn
