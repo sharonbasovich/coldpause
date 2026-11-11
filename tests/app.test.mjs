@@ -79,6 +79,9 @@ test('editing a reviewed result keeps the decorative pause symbol excluded from 
   const h=harness();fillKnown(h);h.submit();h.input('outageMinutes','181');
   const symbol=h.result.children.find(node=>node.className==='result-symbol');
   assert.ok(symbol);assert.equal(symbol.attrs['aria-hidden'],'true');
+  assert.match(symbol.innerHTML, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/);
+  assert.match(symbol.innerHTML, /<path d=/);
+  assert.doesNotMatch(symbol.textContent, /Ⅱ/);
   assert.match(h.result.textContent,/Facts changed\. Review again/);
   assert.equal(h.text('announcement'),'Facts changed. Previous guidance removed.');
 });
