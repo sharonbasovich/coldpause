@@ -174,7 +174,9 @@ reloadChoices.addEventListener('click', () => {
 function invalidate() {
   if (reviewed || pausedReview) {
     resultPanel.className = 'result empty';
-    const symbol = el('div', 'Ⅱ', 'result-symbol'); symbol.setAttribute('aria-hidden', 'true');
+    const symbol = el('div', '', 'result-symbol'); symbol.setAttribute('aria-hidden', 'true');
+    // Static, decorative geometry: no font glyph or user-provided markup.
+    symbol.innerHTML = '<svg class="decorative-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36" aria-hidden="true" focusable="false" fill="currentColor"><path d="M5 6h4v24H5zM15 6h4v24h-4z"/></svg>';
     resultPanel.replaceChildren(symbol, el('h2', 'Facts changed. Review again.'), el('p', 'The previous guidance has been removed. Review this food with the updated facts.'));
     resultPanel.querySelector('h2').id = 'result-title'; resultPanel.querySelector('h2').tabIndex = -1;
     announcement.textContent = 'Facts changed. Previous guidance removed.';

@@ -33,6 +33,13 @@ try {
   for(const [id,value] of Object.entries({doors:'closed',initialCold:'yes',coldSource:'no',spoilage:'no'})) await page.locator('#'+id).selectOption(value);
   await page.locator('button[type="submit"]').click();await page.locator('#result-title').filter({hasText:'Within the general'}).waitFor();
   await page.locator('#outageMinutes').fill('181');assert.match(await page.locator('#result').textContent(),/Facts changed/);results.push('Form guidance invalidation preserved');
+  // Offline restoration requires a committed save, not just synchronous guidance invalidation.
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('coldpause-session-v1'))?.outageMinutes === '181', null, {timeout:8000});
+  const savedStatus = 'Choices saved in this browser. Clear session removes your choices and result.';
+  await page.locator('#session-status').filter({hasText:savedStatus}).waitFor({state:'visible',timeout:8000});
+  assert.equal(await page.locator('#session-status').textContent(),savedStatus);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('coldpause-session-v1')).outageMinutes),'181');
+  results.push('Updated choices committed and successful save visible before offline reload');
   await context.setOffline(true);await page.reload();await status(page,'Offline copy ready · offline detected');assert.equal(await page.locator('#outageMinutes').inputValue(),'181');results.push('Emulated offline reload restores choices, not result');
   assert.doesNotMatch(await page.locator('#result').textContent(),/Within the general/);
   await page.locator('#clear-session').click();assert.equal(await page.locator('#food').inputValue(),'');assert.equal(await page.locator('#food').evaluate(e=>e===document.activeElement),true);
