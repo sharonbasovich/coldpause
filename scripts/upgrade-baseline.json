@@ -1,0 +1,13 @@
+{
+  "repository": "sharonbasovich/coldpause",
+  "commit": "bcfdf382de596fc3d00ae2ffb210203a69a76317",
+  "tree": "e8e30ca89fbdd2253289cbcea402770f7aa8b368",
+  "blobs": {
+    "app.mjs": "94dbb10fed0f27d7b46b3a8b215e56a138b697f7",
+    "icon.svg": "2c448e3bde2f7d524ea43a702745b0e437b31673",
+    "index.html": "393379a841109c607d5e5ba06bf4be0af1d39889",
+    "rules.mjs": "7a86976e10e91641abd19613c59dc3e9ce546853",
+    "styles.css": "ade440a0453b15c7b660b21362143c7829336080",
+    "sw.js": "f8f47317d8fddabbe3bd9ac7162f306a35cc0554"
+  }
+}
